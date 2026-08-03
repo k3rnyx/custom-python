@@ -9,6 +9,25 @@ SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 PROJECT_DIR="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
 VENV_DIR="$PROJECT_DIR/.venv"
 
+# En una simulación no debemos crear archivos ni acceder a la red.  El motor
+# Python solo necesita InquirerPy para el menú interactivo; en modo dry-run
+# puede usar el fallback de curses y ejecutarse con el Python del sistema.
+DRY_RUN=0
+for argumento in "$@"; do
+    if [[ "$argumento" == "--dry-run" ]]; then
+        DRY_RUN=1
+        break
+    fi
+done
+
+if [[ "$DRY_RUN" -eq 1 ]]; then
+    if ! command -v python3 >/dev/null 2>&1; then
+        printf '\nError: --dry-run requiere python3 instalado.\n' >&2
+        exit 1
+    fi
+    exec python3 "$SCRIPT_DIR/ubuntu_customizer.py" "$@"
+fi
+
 info() {
     printf '\n[ubuntu-customizer] %s\n' "$1"
 }

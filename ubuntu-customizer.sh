@@ -78,7 +78,6 @@ run_python() {
     if [[ "$DRY_RUN" -eq 1 ]]; then
         args+=(--dry-run)
         log_info "Simulación: bash $PYTHON_INSTALLER ${args[*]}"
-        return 0
     fi
 
     bash "$PYTHON_INSTALLER" "${args[@]}"
