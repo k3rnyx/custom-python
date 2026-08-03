@@ -32,23 +32,47 @@ info() {
     printf '\n[ubuntu-customizer] %s\n' "$1"
 }
 
-if ! command -v python3 >/dev/null 2>&1; then
-    info "Python 3 no está instalado. Se solicitarán permisos para instalarlo."
+if ! command -v apt-get >/dev/null 2>&1; then
+    printf '\nError: este instalador requiere apt-get (Ubuntu/Debian).\n' >&2
+    exit 1
+fi
+
+APT_PREFIX=()
+if [[ "$EUID" -ne 0 ]]; then
     if ! command -v sudo >/dev/null 2>&1; then
-        printf '\nError: no se encontró sudo. Instala Python 3 con privilegios de administrador.\n' >&2
+        printf '\nError: se requiere sudo para instalar dependencias.\n' >&2
         exit 1
     fi
-    sudo apt-get update
-    sudo apt-get install -y python3 python3-venv python3-pip
-elif ! python3 -m venv --help >/dev/null 2>&1; then
-    info "Falta el módulo venv. Se instalará python3-venv."
-    sudo apt-get update
-    sudo apt-get install -y python3-venv python3-pip
+    APT_PREFIX=(sudo)
 fi
+
+# Se instalan antes de iniciar el menú para que cualquier perfil pueda
+# ejecutarse inmediatamente después de seleccionar una opción.
+DEPENDENCIAS_SISTEMA=(
+    python3 python3-pip python3-venv
+    git gnome-shell gnome-shell-extensions gnome-shell-ubuntu-extensions
+    gnome-shell-extension-manager gnome-tweaks sassc gtk2-engines-murrine
+    gnome-themes-extra gnome-terminal dconf-cli zsh curl fontconfig fzf tmux
+    direnv ripgrep fd-find bat jq deepin-icon-theme papirus-icon-theme
+    libglib2.0-bin
+    nodejs npm postgresql-client redis-tools docker.io docker-compose-v2
+    build-essential
+    nmap wireshark tshark tcpdump netcat-openbsd dnsutils whois traceroute
+    openssl gnupg ufw auditd lynis clamav lsof strace gdb yara
+)
+
+info "Instalando dependencias del sistema antes del menú."
+"${APT_PREFIX[@]}" apt-get update
+"${APT_PREFIX[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y "${DEPENDENCIAS_SISTEMA[@]}"
 
 if [[ ! -x "$VENV_DIR/bin/python" ]]; then
     info "Preparando el entorno aislado de Ubuntu Customizer."
     python3 -m venv "$VENV_DIR"
+fi
+
+if ! "$VENV_DIR/bin/python" -m pip --version >/dev/null 2>&1; then
+    printf '\nError: el entorno Python se creó sin pip. Verifica python3-venv y vuelve a ejecutar el script.\n' >&2
+    exit 1
 fi
 
 info "Instalando dependencias del menú."

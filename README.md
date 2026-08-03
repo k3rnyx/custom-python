@@ -36,3 +36,5 @@ El menú Bash es la interfaz principal y delega la lógica de instalación y con
 La configuración global instala Zsh, Oh My Zsh, autocompletado, autosugerencias, resaltado de sintaxis, integraciones para Git, Node, npm, Docker, Python y fzf, además de JetBrains Mono Nerd Font.
 
 El menú visual reutiliza los componentes ASCII/ANSI de `lib/`, adaptados del proyecto `script-custom-ubuntu-gnome`.
+
+Al iniciar, `app/setup.sh` instala primero las dependencias de Python y las dependencias de sistema de ambos perfiles. El menú se muestra únicamente cuando esa preparación termina correctamente.
