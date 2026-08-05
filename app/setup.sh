@@ -73,6 +73,87 @@ dependencia_cubierta() {
     esac
 }
 
+instalar_aplicaciones() {
+    local arquitectura identificador_vscode archivo_vscode directorio_temporal archivo_opencode
+    arquitectura="$(dpkg --print-architecture)"
+
+    info "Instalando aplicaciones de desarrollo."
+
+    if ! command -v code >/dev/null 2>&1; then
+        case "$arquitectura" in
+            amd64) identificador_vscode='linux-deb-x64' ;;
+            arm64) identificador_vscode='linux-deb-arm64' ;;
+            armhf) identificador_vscode='linux-deb-armhf' ;;
+            *)
+                printf '[ubuntu-customizer] VS Code no tiene paquete compatible con %s; se omite.\n' \
+                    "$arquitectura"
+                identificador_vscode=''
+                ;;
+        esac
+
+        if [[ -n "$identificador_vscode" ]]; then
+            archivo_vscode="$(mktemp --suffix=.deb)"
+            curl -fL --retry 3 \
+                "https://update.code.visualstudio.com/latest/${identificador_vscode}/stable" \
+                -o "$archivo_vscode"
+            "${APT_PREFIX[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y "$archivo_vscode"
+            rm -f -- "$archivo_vscode"
+        fi
+    else
+        printf '%s\n' '[ubuntu-customizer] VS Code ya está instalado.'
+    fi
+
+    if [[ ! -x "$HOME/.local/bin/firefox-nightly" ]]; then
+        directorio_temporal="$(mktemp -d)"
+        case "$arquitectura" in
+            amd64) archivo_opencode='linux64' ;;
+            arm64) archivo_opencode='linux64-aarch64' ;;
+            *) archivo_opencode='' ;;
+        esac
+        if [[ -n "$archivo_opencode" ]]; then
+            curl -fL --retry 3 \
+                "https://download.mozilla.org/?product=firefox-nightly-latest-ssl&os=${archivo_opencode}&lang=en-US" \
+                -o "$directorio_temporal/firefox-nightly.archive"
+            mkdir -p "$HOME/.local/opt" "$HOME/.local/bin" "$HOME/.local/share/applications"
+            # Mozilla puede publicar Nightly como tar.bz2 o tar.xz; tar detecta
+            # automáticamente la compresión cuando no se fuerza un formato.
+            tar -xf "$directorio_temporal/firefox-nightly.archive" -C "$directorio_temporal"
+            if [[ ! -e "$HOME/.local/opt/firefox-nightly" ]]; then
+                mv "$directorio_temporal/firefox" "$HOME/.local/opt/firefox-nightly"
+            fi
+            ln -sfn "$HOME/.local/opt/firefox-nightly/firefox" "$HOME/.local/bin/firefox-nightly"
+            cat > "$HOME/.local/share/applications/firefox-nightly.desktop" <<EOF
+[Desktop Entry]
+Name=Firefox Nightly
+Comment=Firefox Nightly
+Exec=$HOME/.local/bin/firefox-nightly %u
+Icon=$HOME/.local/opt/firefox-nightly/browser/chrome/icons/default/default128.png
+Terminal=false
+Type=Application
+Categories=Network;WebBrowser;
+MimeType=text/html;x-scheme-handler/http;x-scheme-handler/https;
+EOF
+        else
+            printf '[ubuntu-customizer] Firefox Nightly no tiene binario compatible con %s; se omite.\n' \
+                "$arquitectura"
+        fi
+        rm -rf -- "$directorio_temporal"
+    else
+        printf '%s\n' '[ubuntu-customizer] Firefox Nightly ya está instalado.'
+    fi
+
+    if ! command -v opencode >/dev/null 2>&1 \
+        && [[ ! -x "$HOME/.opencode/bin/opencode" ]] \
+        && [[ ! -x "$HOME/.local/bin/opencode" ]]; then
+        archivo_opencode="$(mktemp)"
+        curl -fsSL --retry 3 https://opencode.ai/install -o "$archivo_opencode"
+        bash "$archivo_opencode"
+        rm -f -- "$archivo_opencode"
+    else
+        printf '%s\n' '[ubuntu-customizer] OpenCode ya está instalado.'
+    fi
+}
+
 normalizar_repositorio_mozilla() {
     local lista='/etc/apt/sources.list.d/mozilla.list'
     local formato='/etc/apt/sources.list.d/mozilla.sources'
@@ -112,6 +193,10 @@ if [[ "${#DEPENDENCIAS_FALTANTES[@]}" -gt 0 ]]; then
 else
     printf '%s\n' '[ubuntu-customizer] Todas las dependencias del sistema ya están instaladas.'
 fi
+
+printf '%s\n' '@@PROGRESS START Aplicaciones de desarrollo'
+instalar_aplicaciones
+printf '%s\n' '@@PROGRESS DONE Aplicaciones de desarrollo'
 
 if [[ ! -x "$VENV_DIR/bin/python" ]]; then
     info "Preparando el entorno aislado de Ubuntu Customizer."

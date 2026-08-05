@@ -95,10 +95,12 @@ run_python() {
 PROGRESS_TASKS=(
     "Preparando entorno Python"
     "Dependencias del sistema"
+    "Aplicaciones de desarrollo"
     "Zsh, Oh My Zsh y fuente Nerd"
     "Iconos Deepin SEA"
     "Extensiones de productividad"
     "Ubuntu Dock"
+    "Wallpapers TokyoNight"
     "Tema TokyoNight"
     "Shell flotante y transparencia"
     "Perfil GNOME Terminal"

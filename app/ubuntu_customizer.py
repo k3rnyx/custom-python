@@ -9,6 +9,7 @@ import io
 import os
 import json
 import re
+import secrets
 import shutil
 import subprocess
 import sys
@@ -28,6 +29,7 @@ except ImportError:
     inquirer = None
 
 REPOSITORIO_TOKYONIGHT = "https://github.com/Fausto-Korpsvart/Tokyonight-GTK-Theme.git"
+REPOSITORIO_WALLPAPERS_TOKYONIGHT = "https://github.com/atraxsrc/tokyonight-wallpapers.git"
 CARPETA_INSTALACION = ".cache/ubuntu-customizer/Tokyonight-GTK-Theme"
 OH_MY_ZSH_REPO = "https://github.com/ohmyzsh/ohmyzsh.git"
 ZSH_PLUGIN_REPOS = {
@@ -1131,8 +1133,17 @@ def instalar_extensiones_productividad(*, dry_run: bool = False, progreso: Progr
 
 
 def configurar_ubuntu_dock(*, dry_run: bool = False, progreso: Progreso | None = None) -> None:
-    """Aplica la configuración de productividad del Ubuntu Dock."""
+    """Configura el Dock sin cambiar las aplicaciones fijadas actualmente."""
     _notificar(progreso, "Ubuntu Dock")
+    favoritos_actuales: str | None = None
+    if not dry_run:
+        resultado_favoritos = subprocess.run(
+            ["gsettings", "get", "org.gnome.shell", "favorite-apps"],
+            capture_output=True,
+            text=True,
+        )
+        if resultado_favoritos.returncode == 0:
+            favoritos_actuales = resultado_favoritos.stdout.strip()
     ajustes = (
         ("dock-position", "'BOTTOM'"),
         ("dock-fixed", "false"),
@@ -1157,6 +1168,11 @@ def configurar_ubuntu_dock(*, dry_run: bool = False, progreso: Progreso | None =
             ["gsettings", "set", ESQUEMA_DOCK, clave, valor],
             dry_run=dry_run,
         )
+    if favoritos_actuales:
+        _ejecutar_opcional(
+            ["gsettings", "set", "org.gnome.shell", "favorite-apps", favoritos_actuales],
+            dry_run=dry_run,
+        )
     print("\nConfiguración de Ubuntu Dock aplicada")
     _notificar(progreso, "Ubuntu Dock", True)
 
@@ -1169,6 +1185,40 @@ def mostrar_tema() -> None:
     print(f"  Tema GTK:          {_gsettings('gtk-theme')}")
     print(f"  Tema de iconos:    {_gsettings('icon-theme')}")
     print(f"  Cursor:             {_gsettings('cursor-theme')}")
+
+
+def instalar_wallpapers_tokyonight(
+    *, dry_run: bool = False, progreso: Progreso | None = None
+) -> None:
+    """Descarga y aplica un wallpaper de la colección TokyoNight."""
+    _notificar(progreso, "Wallpapers TokyoNight")
+    destino = Path.home() / ".local/share/backgrounds/TokyoNight"
+    if dry_run:
+        print(f"\nSe descargarían wallpapers TokyoNight en {destino}")
+        _notificar(progreso, "Wallpapers TokyoNight", True)
+        return
+
+    _clonar_si_falta(REPOSITORIO_WALLPAPERS_TOKYONIGHT, destino)
+    extensiones = {".png", ".jpg", ".jpeg", ".webp"}
+    imagenes = sorted(
+        archivo for archivo in destino.rglob("*")
+        if archivo.is_file() and archivo.suffix.lower() in extensiones
+    )
+    if not imagenes:
+        raise RuntimeError(f"No se encontraron imágenes en {destino}")
+
+    imagenes_tokyonight = [
+        imagen for imagen in imagenes
+        if "tokyo" in imagen.stem.lower() or "night" in imagen.stem.lower()
+    ] or imagenes
+    imagen_tokyonight = secrets.choice(imagenes_tokyonight)
+    uri = imagen_tokyonight.as_uri()
+    for clave in ("picture-uri", "picture-uri-dark"):
+        _ejecutar_opcional(
+            ["gsettings", "set", "org.gnome.desktop.background", clave, f"'{uri}'"],
+        )
+    print(f"\nWallpaper TokyoNight aplicado: {imagen_tokyonight.name}")
+    _notificar(progreso, "Wallpapers TokyoNight", True)
 
 
 def instalar_tokyonight_storm(
@@ -1235,6 +1285,7 @@ def instalar_tokyonight_storm(
     )
     instalar_extensiones_productividad(dry_run=dry_run, progreso=progreso)
     configurar_ubuntu_dock(dry_run=dry_run, progreso=progreso)
+    instalar_wallpapers_tokyonight(dry_run=dry_run, progreso=progreso)
     if not destino.exists():
         ejecutar_comando(["git", "clone", "--depth", "1", REPOSITORIO_TOKYONIGHT, str(destino)], dry_run=dry_run)
     comando_instalacion = [
