@@ -102,6 +102,34 @@ def comprobar_comando(nombre: str) -> None:
         raise RuntimeError(f"No se encontró el comando requerido: {nombre}")
 
 
+EQUIVALENTES_PAQUETES = {
+    "docker-compose-v2": ("docker-compose-plugin",),
+}
+
+
+def _paquete_instalado(nombre: str) -> bool:
+    resultado = subprocess.run(
+        ["dpkg-query", "-W", "-f=${Status}", nombre],
+        capture_output=True,
+        text=True,
+    )
+    return resultado.returncode == 0 and resultado.stdout.strip() == "install ok installed"
+
+
+def _dependencias_faltantes(dependencias: list[str]) -> list[str]:
+    """Devuelve solo paquetes ausentes, respetando paquetes equivalentes."""
+    faltantes = []
+    for paquete in dependencias:
+        if _paquete_instalado(paquete):
+            continue
+        equivalentes = EQUIVALENTES_PAQUETES.get(paquete, ())
+        if any(_paquete_instalado(alternativa) for alternativa in equivalentes):
+            print(f"Dependencia cubierta: {paquete} ← {', '.join(equivalentes)}")
+            continue
+        faltantes.append(paquete)
+    return faltantes
+
+
 def error_fatal(error: Exception) -> int:
     print(f"\nError: {error}", file=sys.stderr)
     return 1
@@ -713,47 +741,75 @@ _ubuntu_prompt_context() {
     local version_node=""
 
     if [[ -n "$VIRTUAL_ENV" ]]; then
-        contexto+=" 🐍 ${VIRTUAL_ENV:t}"
+        contexto+=" %F{#c0caf5}via%f %F{#e0af68}🐍 ${VIRTUAL_ENV:t}%f"
     elif [[ -f pyproject.toml || -f requirements.txt || -f manage.py ]]; then
-        contexto+=" 🐍 python"
+        contexto+=" %F{#c0caf5}via%f %F{#e0af68}🐍 python%f"
     fi
 
     if [[ -f package.json || -f pnpm-lock.yaml || -f yarn.lock || -f package-lock.json ]]; then
         if (( $+commands[node] )); then
             version_node=$(node --version 2>/dev/null)
             version_node=${version_node#v}
-            contexto+="  ${version_node}"
+            contexto+=" %F{#c0caf5}via%f %F{#9ece6a}⬢ ${version_node}%f"
         else
-            contexto+="  node"
+            contexto+=" %F{#c0caf5}via%f %F{#9ece6a}⬢ node%f"
         fi
-        [[ -f pnpm-lock.yaml ]] && contexto+=" · pnpm"
-        [[ -f yarn.lock ]] && contexto+=" · yarn"
-        [[ -f package-lock.json ]] && contexto+=" · npm"
+        [[ -f pnpm-lock.yaml ]] && contexto+=" %F{#c0caf5}is%f %F{#bb9af7}📦 pnpm%f"
+        [[ -f yarn.lock ]] && contexto+=" %F{#c0caf5}is%f %F{#bb9af7}📦 yarn%f"
+        [[ -f package-lock.json ]] && contexto+=" %F{#c0caf5}is%f %F{#bb9af7}📦 npm%f"
     fi
 
     if [[ -f compose.yaml || -f compose.yml || -f docker-compose.yaml || -f docker-compose.yml ]]; then
-        contexto+=" 🐳 docker"
+        contexto+=" %F{#c0caf5}via%f %F{#7dcfff}🐳 docker%f"
     fi
 
     if [[ "$UBUNTU_CUSTOMIZER_PROFILE" == "k3rnyx" ]]; then
-        [[ -n "$SSH_CONNECTION" ]] && contexto+=" 🔐 ssh"
-        (( EUID == 0 )) && contexto+=" ⚠ root"
+        [[ -n "$SSH_CONNECTION" ]] && contexto+=" %F{#c0caf5}over%f %F{#7dcfff}ssh%f"
+        (( EUID == 0 )) && contexto+=" %F{#f7768e}root%f"
     fi
 
     PROMPT_CONTEXT="$contexto"
 }
 
-autoload -Uz vcs_info
 setopt prompt_subst
 setopt prompt_percent
-zstyle ':vcs_info:git:*' check-for-changes true
-zstyle ':vcs_info:git:*' formats '  %b%u%c'
-zstyle ':vcs_info:git:*' actionformats '  %b|%a%u%c'
-zstyle ':vcs_info:git:*' unstagedstr ' ✚'
-zstyle ':vcs_info:git:*' stagedstr ' ●'
+
+# Símbolos predeterminados de git_status en Spaceship Prompt.
+ZSH_THEME_GIT_PROMPT_UNTRACKED='?'
+ZSH_THEME_GIT_PROMPT_ADDED='+'
+ZSH_THEME_GIT_PROMPT_MODIFIED='!'
+ZSH_THEME_GIT_PROMPT_RENAMED='»'
+ZSH_THEME_GIT_PROMPT_DELETED='✘'
+ZSH_THEME_GIT_PROMPT_STASHED='$'
+ZSH_THEME_GIT_PROMPT_UNMERGED='='
+ZSH_THEME_GIT_PROMPT_AHEAD='⇡'
+ZSH_THEME_GIT_PROMPT_BEHIND='⇣'
+ZSH_THEME_GIT_PROMPT_DIVERGED='⇕'
+
+_ubuntu_prompt_git() {
+    local rama=""
+    local estado=""
+    PROMPT_GIT=""
+
+    if (( $+functions[git_current_branch] )); then
+        rama=$(git_current_branch 2>/dev/null)
+    else
+        rama=$(command git symbolic-ref --quiet --short HEAD 2>/dev/null) || \
+            rama=$(command git rev-parse --short HEAD 2>/dev/null)
+    fi
+    [[ -z "$rama" ]] && return
+
+    if (( $+functions[_omz_git_prompt_status] )); then
+        estado=$(_omz_git_prompt_status 2>/dev/null)
+    fi
+
+    PROMPT_GIT=" %F{#c0caf5}on%f %F{#bb9af7} ${rama}%f"
+    [[ -n "$estado" ]] && PROMPT_GIT+=" %F{#f7768e}[${estado}]%f"
+}
+
 precmd() {
     local estado=$?
-    vcs_info
+    _ubuntu_prompt_git
     _ubuntu_prompt_context
     return $estado
 }
@@ -764,7 +820,7 @@ precmd() {
             "# WanTher: desarrollo Fullstack\n"
             f"{contexto}"
             "UBUNTU_CUSTOMIZER_PROFILE=wanther\n"
-            "PROMPT='%(?..%F{red}✖ %?%f )%F{cyan}󰣇 wanther%f %F{blue}%~%f%F{yellow}${vcs_info_msg_0_}%f%F{green}${PROMPT_CONTEXT}%f\n%F{green}❯%f '\n"
+            "PROMPT='%F{#7dcfff}󰖟 WanTher%f %F{#7aa2f7}%2~%f${PROMPT_GIT}${PROMPT_CONTEXT}%(?.. %F{#f7768e}✘ %?%f)\n%F{#9ece6a}❯%f '\n"
             f"{PROMPT_MARKER_END}\n"
         )
     if perfil == "k3rnyx":
@@ -773,7 +829,7 @@ precmd() {
             "# K3rNyx: seguridad informática\n"
             f"{contexto}"
             "UBUNTU_CUSTOMIZER_PROFILE=k3rnyx\n"
-            "PROMPT='%(?..%F{red}✖ %?%f )%F{magenta}󰒃 k3rnyx%f %F{red}%n@%m%f:%F{blue}%~%f%F{yellow}${vcs_info_msg_0_}%f%F{cyan}${PROMPT_CONTEXT}%f\n%(!.%F{red}#%f.%F{red}⚡%f) '\n"
+            "PROMPT='%F{#bb9af7}⛧ K3rNyx%f %F{#f7768e}%n%f%F{#e0af68}㉿%f%F{#7dcfff}%m%f %F{#7aa2f7}%2~%f${PROMPT_GIT}${PROMPT_CONTEXT}%(?.. %F{#f7768e}✘ %?%f)\n%(!.%F{#f7768e}#%f.%F{#f7768e}☠%f) '\n"
             f"{PROMPT_MARKER_END}\n"
         )
     raise RuntimeError(f"Perfil no reconocido: {perfil}")
@@ -1144,17 +1200,15 @@ def instalar_tokyonight_storm(
     print(f"\nPerfil seleccionado: {PERFILES[perfil]['nombre']}")
     _notificar(progreso, "Dependencias del sistema")
     ejecutar_comando(["sudo", "apt-get", "update"], dry_run=dry_run, sudo_password=sudo_password)
-    ejecutar_comando(
-        [
-            "sudo",
-            "apt-get",
-            "install",
-            "-y",
-            *dependencias,
-        ],
-        dry_run=dry_run,
-        sudo_password=sudo_password,
-    )
+    faltantes = _dependencias_faltantes(dependencias)
+    if faltantes:
+        ejecutar_comando(
+            ["sudo", "apt-get", "install", "-y", *faltantes],
+            dry_run=dry_run,
+            sudo_password=sudo_password,
+        )
+    else:
+        print("\nTodas las dependencias del sistema ya están instaladas.")
     _notificar(progreso, "Dependencias del sistema", True)
     configurar_entorno_terminal(dry_run=dry_run, progreso=progreso, perfil=perfil)
     reducir_iconos_sea(

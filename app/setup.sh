@@ -61,9 +61,36 @@ DEPENDENCIAS_SISTEMA=(
     openssl gnupg ufw auditd lynis clamav lsof strace gdb yara
 )
 
+paquete_instalado() {
+    dpkg-query -W -f='${Status}' "$1" 2>/dev/null | grep -q '^install ok installed$'
+}
+
+dependencia_cubierta() {
+    case "$1" in
+        docker-compose-v2) paquete_instalado docker-compose-plugin ;;
+        *) return 1 ;;
+    esac
+}
+
+DEPENDENCIAS_FALTANTES=()
+for paquete in "${DEPENDENCIAS_SISTEMA[@]}"; do
+    if paquete_instalado "$paquete"; then
+        continue
+    fi
+    if dependencia_cubierta "$paquete"; then
+        printf '[ubuntu-customizer] Dependencia cubierta: %s\n' "$paquete"
+        continue
+    fi
+    DEPENDENCIAS_FALTANTES+=("$paquete")
+done
+
 info "Instalando dependencias del sistema antes del menú."
-"${APT_PREFIX[@]}" apt-get update
-"${APT_PREFIX[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y "${DEPENDENCIAS_SISTEMA[@]}"
+if [[ "${#DEPENDENCIAS_FALTANTES[@]}" -gt 0 ]]; then
+    "${APT_PREFIX[@]}" apt-get update
+    "${APT_PREFIX[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y "${DEPENDENCIAS_FALTANTES[@]}"
+else
+    printf '%s\n' '[ubuntu-customizer] Todas las dependencias del sistema ya están instaladas.'
+fi
 
 if [[ ! -x "$VENV_DIR/bin/python" ]]; then
     info "Preparando el entorno aislado de Ubuntu Customizer."
