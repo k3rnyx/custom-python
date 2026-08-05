@@ -53,7 +53,8 @@ DEPENDENCIAS_SISTEMA=(
     git gnome-shell gnome-shell-extensions gnome-shell-ubuntu-extensions
     gnome-shell-extension-manager gnome-tweaks sassc gtk2-engines-murrine
     gnome-themes-extra dconf-cli zsh curl fontconfig fzf tmux
-    direnv ripgrep fd-find bat jq deepin-icon-theme papirus-icon-theme
+    direnv ripgrep fd-find bat jq zoxide eza btop tealdeer neovim shellcheck shfmt
+    deepin-icon-theme papirus-icon-theme
     libglib2.0-bin
     nodejs npm postgresql-client redis-tools docker.io docker-compose-v2
     build-essential
@@ -72,6 +73,26 @@ dependencia_cubierta() {
     esac
 }
 
+normalizar_repositorio_mozilla() {
+    local lista='/etc/apt/sources.list.d/mozilla.list'
+    local formato='/etc/apt/sources.list.d/mozilla.sources'
+    local respaldo="${lista}.disabled-by-ubuntu-customizer"
+
+    # APT acepta cualquiera de los dos formatos, pero no ambos para el mismo
+    # repositorio. Se conserva el formato .sources y se renombra el duplicado
+    # para que pueda restaurarse manualmente si fuera necesario.
+    if [[ -f "$lista" && -f "$formato" ]] \
+        && grep -Fq 'packages.mozilla.org/apt' "$lista" \
+        && grep -Fq 'packages.mozilla.org/apt' "$formato"; then
+        if [[ -e "$respaldo" ]]; then
+            respaldo="${lista}.disabled-by-ubuntu-customizer.$$"
+        fi
+        printf '[ubuntu-customizer] Repositorio Mozilla duplicado; se conserva %s y se renombra %s.\n' \
+            "$formato" "$lista"
+        "${APT_PREFIX[@]}" mv "$lista" "$respaldo"
+    fi
+}
+
 DEPENDENCIAS_FALTANTES=()
 for paquete in "${DEPENDENCIAS_SISTEMA[@]}"; do
     if paquete_instalado "$paquete"; then
@@ -85,8 +106,8 @@ for paquete in "${DEPENDENCIAS_SISTEMA[@]}"; do
 done
 
 info "Instalando dependencias del sistema antes del menú."
+normalizar_repositorio_mozilla
 if [[ "${#DEPENDENCIAS_FALTANTES[@]}" -gt 0 ]]; then
-    "${APT_PREFIX[@]}" apt-get update
     "${APT_PREFIX[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y "${DEPENDENCIAS_FALTANTES[@]}"
 else
     printf '%s\n' '[ubuntu-customizer] Todas las dependencias del sistema ya están instaladas.'

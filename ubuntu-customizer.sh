@@ -9,7 +9,7 @@ source "$SCRIPT_DIR/lib/ui.sh"
 source "$SCRIPT_DIR/lib/banner.sh"
 
 # El banner original usa todo el ancho disponible de la terminal.
-TERM_W=$(tput cols 2>/dev/null || printf '80')
+refresh_terminal_size
 BANNER_HEIGHT=18
 
 MENU_LABELS=(
@@ -71,6 +71,15 @@ check_ubuntu() {
         "Este programa requiere Ubuntu; sistema detectado: ${id:-desconocido}"
 }
 
+avisar_actualizacion() {
+    printf '\n  %bAviso:%b actualiza el sistema antes de continuar con Ubuntu Customizer.\n' \
+        "$TN_YELLOW$BLD" "$RST"
+    printf '  Ejecuta: %bsudo apt update && sudo apt upgrade%b\n\n' "$TN_CYAN" "$RST"
+    printf '  %bPresiona una tecla para continuar...%b' "$TN_PURPLE" "$RST"
+    read -rsn1 || true
+    printf '\n'
+}
+
 run_python() {
     [[ -f "$PYTHON_INSTALLER" ]] || fail "No se encontró: $PYTHON_INSTALLER"
 
@@ -99,6 +108,7 @@ SPINNER_INDEX=0
 
 render_progress() {
     local log_file="$1" finished="$2" exit_code="${3:-0}"
+    refresh_terminal_size
     local current task marker color index last_lines
     current="$(grep '^@@PROGRESS START ' "$log_file" 2>/dev/null | tail -n1 | sed 's/^@@PROGRESS START //')"
 
@@ -184,6 +194,7 @@ run_python_background() {
 }
 
 draw_menu() {
+    refresh_terminal_size
     local redraw_static="${1:-0}"
     if [[ "$redraw_static" -eq 1 || ! -s "$BANNER_FILE" ]]; then
         local raw_banner
@@ -246,6 +257,7 @@ interactive_menu() {
         tput cnorm 2>/dev/null || true
     }
     trap cleanup_menu EXIT INT TERM
+    trap 'draw_menu 1' WINCH
 
     draw_menu 1
     while true; do
@@ -334,6 +346,7 @@ parse_args() {
 main() {
     parse_args "$@"
     check_ubuntu
+    avisar_actualizacion
     case "$ACTION" in
         tema) run_python --tema tokyonight-storm --perfil "$PROFILE" ;;
         mostrar) run_python --tema mostrar ;;

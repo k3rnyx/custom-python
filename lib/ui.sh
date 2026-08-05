@@ -12,7 +12,19 @@ readonly RST='\e[0m'
 readonly BLD='\e[1m'
 readonly DIM='\e[2m'
 
-TERM_W=$(tput cols 2>/dev/null || echo 72); ((TERM_W < 72)) && TERM_W=72
+terminal_width() {
+    local width
+    width=$(tput cols 2>/dev/null || printf '80')
+    [[ "$width" =~ ^[0-9]+$ ]] || width=80
+    ((width < 40)) && width=40
+    printf '%s' "$width"
+}
+
+refresh_terminal_size() {
+    TERM_W=$(terminal_width)
+}
+
+refresh_terminal_size
 
 log_info()    { echo -e "  ${TN_CYAN}◆${RST}  ${TN_FG}$*${RST}"; }
 log_ok()      { echo -e "  ${TN_GREEN}✓${RST}  ${TN_FG}$*${RST}"; }
@@ -34,8 +46,17 @@ run_with_spinner() {
         i=$(( (i + 1) % ${#spin[@]} ))
         sleep 0.1
     done
-    wait "$pid"; rc=$?
-    echo -ne "\r\e[2K"
+    if wait "$pid"; then
+        rc=0
+    else
+        rc=$?
+    fi
+    if ((rc == 0)); then
+        printf '\r\033[2K     %b✓%b  %b%s%b\n' "$TN_GREEN" "$RST" "$TN_FG" "$msg" "$RST"
+    else
+        printf '\r\033[2K     %b✗%b  %b%s (código %d)%b\n' \
+            "$TN_PINK" "$RST" "$TN_FG" "$msg" "$rc" "$RST"
+    fi
     return $rc
 }
 

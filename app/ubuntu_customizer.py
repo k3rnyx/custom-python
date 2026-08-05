@@ -859,6 +859,17 @@ def configurar_zsh(
         f"plugins=({plugins})\n"
         "HIST_STAMPS=\"yyyy-mm-dd\"\n"
         "setopt hist_ignore_dups share_history\n"
+        "if (( $+commands[zoxide] )); then\n"
+        "  eval \"$(zoxide init zsh)\"\n"
+        "fi\n"
+        "if (( $+commands[eza] )); then\n"
+        "  alias ls='eza --group-directories-first'\n"
+        "  alias ll='eza -lah --git --group-directories-first'\n"
+        "  alias la='eza -a --group-directories-first'\n"
+        "fi\n"
+        "alias c='clear'\n"
+        "alias ..='cd ..'\n"
+        "alias ...='cd ../..'\n"
         f"{ZSH_MARKER_END}\n"
     )
     prompt = _prompt_personalizado(perfil)
@@ -1192,6 +1203,13 @@ def instalar_tokyonight_storm(
         "fd-find",
         "bat",
         "jq",
+        "zoxide",
+        "eza",
+        "btop",
+        "tealdeer",
+        "neovim",
+        "shellcheck",
+        "shfmt",
         "deepin-icon-theme",
         "papirus-icon-theme",
         "libglib2.0-bin",
@@ -1199,7 +1217,6 @@ def instalar_tokyonight_storm(
     ]
     print(f"\nPerfil seleccionado: {PERFILES[perfil]['nombre']}")
     _notificar(progreso, "Dependencias del sistema")
-    ejecutar_comando(["sudo", "apt-get", "update"], dry_run=dry_run, sudo_password=sudo_password)
     faltantes = _dependencias_faltantes(dependencias)
     if faltantes:
         ejecutar_comando(
