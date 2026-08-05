@@ -178,7 +178,14 @@ run_python_background() {
 
     tput smcup 2>/dev/null || true
     tput civis 2>/dev/null || true
+    # `kill -0` también puede devolver éxito cuando el hijo ya terminó pero
+    # todavía permanece como zombie hasta que el padre ejecuta `wait`. En ese
+    # caso el monitor se quedaba mostrando indefinidamente la última línea del
+    # instalador. Consideramos terminado el proceso cuando su estado es Z.
     while kill -0 "$pid" 2>/dev/null; do
+        if ps -o stat= -p "$pid" 2>/dev/null | grep -q '^Z'; then
+            break
+        fi
         render_progress "$log_file" 0
         sleep 0.15
     done
