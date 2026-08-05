@@ -111,18 +111,23 @@ EQUIVALENTES_PAQUETES = {
 
 def _paquete_instalado(nombre: str) -> bool:
     resultado = subprocess.run(
-        ["dpkg-query", "-W", "-f=${Status}", nombre],
+        ["dpkg-query", "-W", "-f=${db:Status-Status}", nombre],
         capture_output=True,
         text=True,
     )
-    return resultado.returncode == 0 and resultado.stdout.strip() == "install ok installed"
+    return resultado.returncode == 0 and resultado.stdout.strip() == "installed"
+
+
+def _paquete_requiere_reparacion(nombre: str) -> bool:
+    """Detecta paquetes marcados como instalados pero sin su comando principal."""
+    return nombre == "zsh" and shutil.which("zsh") is None
 
 
 def _dependencias_faltantes(dependencias: list[str]) -> list[str]:
     """Devuelve solo paquetes ausentes, respetando paquetes equivalentes."""
     faltantes = []
     for paquete in dependencias:
-        if _paquete_instalado(paquete):
+        if _paquete_instalado(paquete) and not _paquete_requiere_reparacion(paquete):
             continue
         equivalentes = EQUIVALENTES_PAQUETES.get(paquete, ())
         if any(_paquete_instalado(alternativa) for alternativa in equivalentes):
@@ -1269,8 +1274,14 @@ def instalar_tokyonight_storm(
     _notificar(progreso, "Dependencias del sistema")
     faltantes = _dependencias_faltantes(dependencias)
     if faltantes:
+        opciones_apt = ["install", "-y"]
+        if any(
+            _paquete_instalado(paquete) and _paquete_requiere_reparacion(paquete)
+            for paquete in faltantes
+        ):
+            opciones_apt.insert(1, "--reinstall")
         ejecutar_comando(
-            ["sudo", "apt-get", "install", "-y", *faltantes],
+            ["sudo", "apt-get", *opciones_apt, *faltantes],
             dry_run=dry_run,
             sudo_password=sudo_password,
         )

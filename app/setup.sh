@@ -63,7 +63,14 @@ DEPENDENCIAS_SISTEMA=(
 )
 
 paquete_instalado() {
-    dpkg-query -W -f='${Status}' "$1" 2>/dev/null | grep -q '^install ok installed$'
+    [[ "$(dpkg-query -W -f='${db:Status-Status}' "$1" 2>/dev/null || true)" == "installed" ]]
+}
+
+paquete_requiere_reparacion() {
+    case "$1" in
+        zsh) ! command -v zsh >/dev/null 2>&1 ;;
+        *) return 1 ;;
+    esac
 }
 
 dependencia_cubierta() {
@@ -175,8 +182,13 @@ normalizar_repositorio_mozilla() {
 }
 
 DEPENDENCIAS_FALTANTES=()
+DEPENDENCIAS_REPARAR=()
 for paquete in "${DEPENDENCIAS_SISTEMA[@]}"; do
     if paquete_instalado "$paquete"; then
+        if paquete_requiere_reparacion "$paquete"; then
+            printf '[ubuntu-customizer] Paquete instalado pero incompleto: %s; se reparará.\n' "$paquete"
+            DEPENDENCIAS_REPARAR+=("$paquete")
+        fi
         continue
     fi
     if dependencia_cubierta "$paquete"; then
@@ -190,7 +202,11 @@ info "Instalando dependencias del sistema antes del menú."
 normalizar_repositorio_mozilla
 if [[ "${#DEPENDENCIAS_FALTANTES[@]}" -gt 0 ]]; then
     "${APT_PREFIX[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y "${DEPENDENCIAS_FALTANTES[@]}"
-else
+fi
+if [[ "${#DEPENDENCIAS_REPARAR[@]}" -gt 0 ]]; then
+    "${APT_PREFIX[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y --reinstall "${DEPENDENCIAS_REPARAR[@]}"
+fi
+if [[ "${#DEPENDENCIAS_FALTANTES[@]}" -eq 0 && "${#DEPENDENCIAS_REPARAR[@]}" -eq 0 ]]; then
     printf '%s\n' '[ubuntu-customizer] Todas las dependencias del sistema ya están instaladas.'
 fi
 
