@@ -31,7 +31,7 @@ Perfiles disponibles desde el menú:
 - `WanTher`: desarrollo Fullstack Angular, Node.js, Docker, PostgreSQL y Redis.
 - `K3rNyx`: seguridad informática, análisis de red y herramientas de laboratorio.
 
-El menú Bash es la interfaz principal y delega la lógica de instalación y configuración al motor Python. La personalización también crea y activa un perfil `TokyoNight Storm` para GNOME Terminal.
+El menú Bash es la interfaz principal y delega la lógica de instalación y configuración al motor Python. La personalización configura el perfil `TokyoNight Storm` en la terminal predeterminada de Ubuntu (GNOME Terminal), si ya está instalada. No instala ni reemplaza ningún emulador de terminal.
 
 La configuración global instala Zsh, Oh My Zsh, autocompletado, autosugerencias, resaltado de sintaxis, integraciones para Git, Node, npm, Docker, Python y fzf, además de JetBrains Mono Nerd Font.
 

@@ -41,6 +41,8 @@ ZSH_CUSTOM_DIR = OH_MY_ZSH_DIR / "custom"
 FONT_DIR = Path.home() / ".local/share/fonts/JetBrainsMono Nerd Font"
 ZSH_MARKER_START = "# >>> ubuntu-customizer: zsh >>>"
 ZSH_MARKER_END = "# <<< ubuntu-customizer: zsh <<<"
+PROMPT_MARKER_START = "# >>> ubuntu-customizer: prompt >>>"
+PROMPT_MARKER_END = "# <<< ubuntu-customizer: prompt <<<"
 
 Progreso = Callable[[str, bool], None]
 Accion = Callable[[Progreso, str | None], None]
@@ -623,9 +625,19 @@ def _dconf_write(ruta: str, valor: str, *, dry_run: bool = False) -> None:
 
 
 def configurar_gnome_terminal(*, dry_run: bool = False, progreso: Progreso | None = None) -> None:
-    """Crea y activa un perfil TokyoNight para GNOME Terminal."""
+    """Configura la terminal predeterminada de Ubuntu sin instalar otra."""
     if not dry_run:
         comprobar_comando("dconf")
+        esquemas = subprocess.run(
+            ["gsettings", "list-schemas"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.splitlines()
+        if "org.gnome.Terminal.Legacy.Profile" not in esquemas:
+            print("\nAviso: no se encontró GNOME Terminal; se conserva la terminal actual.")
+            _notificar(progreso, "Perfil GNOME Terminal", True)
+            return
     _notificar(progreso, "Perfil GNOME Terminal")
 
     base = "/org/gnome/terminal/legacy/profiles:/"
@@ -693,7 +705,83 @@ def _clonar_si_falta(repositorio: str, destino: Path, *, dry_run: bool = False) 
     subprocess.run(comando, check=True, capture_output=True, text=True)
 
 
-def configurar_zsh(*, dry_run: bool = False, progreso: Progreso | None = None) -> None:
+def _prompt_personalizado(perfil: str) -> str:
+    """Devuelve un prompt Zsh contextual para el perfil seleccionado."""
+    contexto = """
+_ubuntu_prompt_context() {
+    local contexto=""
+    local version_node=""
+
+    if [[ -n "$VIRTUAL_ENV" ]]; then
+        contexto+=" 🐍 ${VIRTUAL_ENV:t}"
+    elif [[ -f pyproject.toml || -f requirements.txt || -f manage.py ]]; then
+        contexto+=" 🐍 python"
+    fi
+
+    if [[ -f package.json || -f pnpm-lock.yaml || -f yarn.lock || -f package-lock.json ]]; then
+        if (( $+commands[node] )); then
+            version_node=$(node --version 2>/dev/null)
+            version_node=${version_node#v}
+            contexto+="  ${version_node}"
+        else
+            contexto+="  node"
+        fi
+        [[ -f pnpm-lock.yaml ]] && contexto+=" · pnpm"
+        [[ -f yarn.lock ]] && contexto+=" · yarn"
+        [[ -f package-lock.json ]] && contexto+=" · npm"
+    fi
+
+    if [[ -f compose.yaml || -f compose.yml || -f docker-compose.yaml || -f docker-compose.yml ]]; then
+        contexto+=" 🐳 docker"
+    fi
+
+    if [[ "$UBUNTU_CUSTOMIZER_PROFILE" == "k3rnyx" ]]; then
+        [[ -n "$SSH_CONNECTION" ]] && contexto+=" 🔐 ssh"
+        (( EUID == 0 )) && contexto+=" ⚠ root"
+    fi
+
+    PROMPT_CONTEXT="$contexto"
+}
+
+autoload -Uz vcs_info
+setopt prompt_subst
+setopt prompt_percent
+zstyle ':vcs_info:git:*' check-for-changes true
+zstyle ':vcs_info:git:*' formats '  %b%u%c'
+zstyle ':vcs_info:git:*' actionformats '  %b|%a%u%c'
+zstyle ':vcs_info:git:*' unstagedstr ' ✚'
+zstyle ':vcs_info:git:*' stagedstr ' ●'
+precmd() {
+    local estado=$?
+    vcs_info
+    _ubuntu_prompt_context
+    return $estado
+}
+"""
+    if perfil == "wanther":
+        return (
+            f"{PROMPT_MARKER_START}\n"
+            "# WanTher: desarrollo Fullstack\n"
+            f"{contexto}"
+            "UBUNTU_CUSTOMIZER_PROFILE=wanther\n"
+            "PROMPT='%(?..%F{red}✖ %?%f )%F{cyan}󰣇 wanther%f %F{blue}%~%f%F{yellow}${vcs_info_msg_0_}%f%F{green}${PROMPT_CONTEXT}%f\n%F{green}❯%f '\n"
+            f"{PROMPT_MARKER_END}\n"
+        )
+    if perfil == "k3rnyx":
+        return (
+            f"{PROMPT_MARKER_START}\n"
+            "# K3rNyx: seguridad informática\n"
+            f"{contexto}"
+            "UBUNTU_CUSTOMIZER_PROFILE=k3rnyx\n"
+            "PROMPT='%(?..%F{red}✖ %?%f )%F{magenta}󰒃 k3rnyx%f %F{red}%n@%m%f:%F{blue}%~%f%F{yellow}${vcs_info_msg_0_}%f%F{cyan}${PROMPT_CONTEXT}%f\n%(!.%F{red}#%f.%F{red}⚡%f) '\n"
+            f"{PROMPT_MARKER_END}\n"
+        )
+    raise RuntimeError(f"Perfil no reconocido: {perfil}")
+
+
+def configurar_zsh(
+    *, dry_run: bool = False, progreso: Progreso | None = None, perfil: str = "wanther"
+) -> None:
     """Instala Zsh, Oh My Zsh y plugins productivos de forma idempotente."""
     _notificar(progreso, "Zsh, Oh My Zsh y fuente Nerd")
     if not dry_run:
@@ -711,28 +799,33 @@ def configurar_zsh(*, dry_run: bool = False, progreso: Progreso | None = None) -
     bloque = (
         f"{ZSH_MARKER_START}\n"
         'export ZSH="$HOME/.oh-my-zsh"\n'
-        'ZSH_THEME="agnoster"\n'
+        'ZSH_THEME=""\n'
         f"plugins=({plugins})\n"
         "HIST_STAMPS=\"yyyy-mm-dd\"\n"
         "setopt hist_ignore_dups share_history\n"
         f"{ZSH_MARKER_END}\n"
     )
+    prompt = _prompt_personalizado(perfil)
     zshrc = Path.home() / ".zshrc"
     if dry_run:
-        print(f"\nConfigurar {zshrc} con plugins: {plugins}")
+        print(f"\nConfigurar {zshrc} con plugins: {plugins} y prompt {perfil}")
     else:
         contenido = zshrc.read_text(encoding="utf-8") if zshrc.exists() else ""
-        if ZSH_MARKER_START in contenido and ZSH_MARKER_END in contenido:
-            inicio = contenido.index(ZSH_MARKER_START)
-            fin = contenido.index(ZSH_MARKER_END, inicio) + len(ZSH_MARKER_END)
-            contenido = contenido[:inicio] + contenido[fin:].lstrip("\n")
+        for inicio_marcador, fin_marcador in (
+            (ZSH_MARKER_START, ZSH_MARKER_END),
+            (PROMPT_MARKER_START, PROMPT_MARKER_END),
+        ):
+            if inicio_marcador in contenido and fin_marcador in contenido:
+                inicio = contenido.index(inicio_marcador)
+                fin = contenido.index(fin_marcador, inicio) + len(fin_marcador)
+                contenido = contenido[:inicio] + contenido[fin:].lstrip("\n")
         if zshrc.exists() and not (zshrc.with_suffix(".zshrc.ubuntu-customizer.bak")).exists():
             shutil.copy2(zshrc, zshrc.with_suffix(".zshrc.ubuntu-customizer.bak"))
         fuente_omz = "source $ZSH/oh-my-zsh.sh"
         if fuente_omz in contenido:
-            contenido = contenido.replace(fuente_omz, bloque + "\n" + fuente_omz, 1)
+            contenido = contenido.replace(fuente_omz, bloque + "\n" + fuente_omz + "\n\n" + prompt, 1)
         else:
-            contenido = bloque + "\n" + 'export ZSH="$HOME/.oh-my-zsh"\n' + fuente_omz + "\n" + contenido
+            contenido = bloque + "\n" + 'export ZSH="$HOME/.oh-my-zsh"\n' + fuente_omz + "\n\n" + prompt + contenido
         zshrc.write_text(contenido, encoding="utf-8")
 
     zsh_path = shutil.which("zsh")
@@ -759,8 +852,10 @@ def instalar_jetbrains_mono_nerd(*, dry_run: bool = False) -> None:
     subprocess.run(["fc-cache", "-f", str(FONT_DIR)], check=True, capture_output=True, text=True)
 
 
-def configurar_entorno_terminal(*, dry_run: bool = False, progreso: Progreso | None = None) -> None:
-    configurar_zsh(dry_run=dry_run, progreso=progreso)
+def configurar_entorno_terminal(
+    *, dry_run: bool = False, progreso: Progreso | None = None, perfil: str = "wanther"
+) -> None:
+    configurar_zsh(dry_run=dry_run, progreso=progreso, perfil=perfil)
     instalar_jetbrains_mono_nerd(dry_run=dry_run)
 
 
@@ -1030,7 +1125,6 @@ def instalar_tokyonight_storm(
         "sassc",
         "gtk2-engines-murrine",
         "gnome-themes-extra",
-        "gnome-terminal",
         "dconf-cli",
         "zsh",
         "curl",
@@ -1062,7 +1156,7 @@ def instalar_tokyonight_storm(
         sudo_password=sudo_password,
     )
     _notificar(progreso, "Dependencias del sistema", True)
-    configurar_entorno_terminal(dry_run=dry_run, progreso=progreso)
+    configurar_entorno_terminal(dry_run=dry_run, progreso=progreso, perfil=perfil)
     reducir_iconos_sea(
         dry_run=dry_run,
         progreso=progreso,

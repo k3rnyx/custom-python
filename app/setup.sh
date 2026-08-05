@@ -52,7 +52,7 @@ DEPENDENCIAS_SISTEMA=(
     python3 python3-pip python3-venv
     git gnome-shell gnome-shell-extensions gnome-shell-ubuntu-extensions
     gnome-shell-extension-manager gnome-tweaks sassc gtk2-engines-murrine
-    gnome-themes-extra gnome-terminal dconf-cli zsh curl fontconfig fzf tmux
+    gnome-themes-extra dconf-cli zsh curl fontconfig fzf tmux
     direnv ripgrep fd-find bat jq deepin-icon-theme papirus-icon-theme
     libglib2.0-bin
     nodejs npm postgresql-client redis-tools docker.io docker-compose-v2
