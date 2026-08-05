@@ -737,7 +737,11 @@ def _clonar_si_falta(repositorio: str, destino: Path, *, dry_run: bool = False) 
     if dry_run:
         ejecutar_comando(comando, dry_run=True)
         return
-    subprocess.run(comando, check=True, capture_output=True, text=True)
+    print(f"Instalando {destino.name} desde {repositorio}", flush=True)
+    try:
+        subprocess.run(comando, check=True, capture_output=True, text=True, timeout=180)
+    except subprocess.TimeoutExpired as error:
+        raise RuntimeError(f"Tiempo agotado al descargar {repositorio}. Comprueba la conexión a Internet.") from error
 
 
 def _prompt_personalizado(perfil: str) -> str:
@@ -851,6 +855,7 @@ def configurar_zsh(
         comprobar_comando("git")
         comprobar_comando("zsh")
 
+    print("Instalando Oh My Zsh y plugins...", flush=True)
     _clonar_si_falta(OH_MY_ZSH_REPO, OH_MY_ZSH_DIR, dry_run=dry_run)
     for nombre, repositorio in ZSH_PLUGIN_REPOS.items():
         _clonar_si_falta(repositorio, ZSH_CUSTOM_DIR / "plugins" / nombre, dry_run=dry_run)
@@ -904,9 +909,18 @@ def configurar_zsh(
 
     zsh_path = shutil.which("zsh")
     if not dry_run and zsh_path and os.environ.get("SHELL") != zsh_path:
-        resultado = subprocess.run(["chsh", "-s", zsh_path], capture_output=True, text=True)
-        if resultado.returncode != 0:
-            print(f"Aviso: no se pudo establecer Zsh como shell predeterminado: {resultado.stderr.strip()}")
+        try:
+            resultado = subprocess.run(
+                ["chsh", "-s", zsh_path],
+                capture_output=True,
+                text=True,
+                stdin=subprocess.DEVNULL,
+                timeout=15,
+            )
+            if resultado.returncode != 0:
+                print(f"Aviso: no se pudo establecer Zsh como shell predeterminado: {resultado.stderr.strip()}")
+        except subprocess.TimeoutExpired:
+            print("Aviso: chsh tardó demasiado; Zsh quedó instalado, pero no se cambió el shell predeterminado.")
     _notificar(progreso, "Zsh, Oh My Zsh y fuente Nerd", True)
 
 
