@@ -739,7 +739,18 @@ def _clonar_si_falta(repositorio: str, destino: Path, *, dry_run: bool = False) 
         return
     print(f"Instalando {destino.name} desde {repositorio}", flush=True)
     try:
-        subprocess.run(comando, check=True, capture_output=True, text=True, timeout=180)
+        entorno = os.environ.copy()
+        # Si el repositorio requiere autenticación, Git debe poder solicitarla
+        # por el terminal. No se almacenan credenciales en el proceso.
+        entorno["GIT_TERMINAL_PROMPT"] = "1"
+        subprocess.run(
+            comando,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=180,
+            env=entorno,
+        )
     except subprocess.TimeoutExpired as error:
         raise RuntimeError(f"Tiempo agotado al descargar {repositorio}. Comprueba la conexión a Internet.") from error
 
@@ -909,12 +920,12 @@ def configurar_zsh(
 
     zsh_path = shutil.which("zsh")
     if not dry_run and zsh_path and os.environ.get("SHELL") != zsh_path:
+        print("Cambiando el shell predeterminado a Zsh (puede pedir autenticación)...", flush=True)
         try:
             resultado = subprocess.run(
                 ["chsh", "-s", zsh_path],
                 capture_output=True,
                 text=True,
-                stdin=subprocess.DEVNULL,
                 timeout=15,
             )
             if resultado.returncode != 0:
