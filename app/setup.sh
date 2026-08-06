@@ -49,7 +49,7 @@ fi
 # Se instalan antes de iniciar el menú para que cualquier perfil pueda
 # ejecutarse inmediatamente después de seleccionar una opción.
 DEPENDENCIAS_SISTEMA=(
-    python3 python3-pip python3-venv
+    sudo python3 python3-pip python3-venv
     git gnome-shell gnome-shell-extensions gnome-shell-ubuntu-extensions
     gnome-shell-extension-manager gnome-tweaks sassc gtk2-engines-murrine
     gnome-themes-extra dconf-cli zsh curl fontconfig fzf tmux
@@ -200,6 +200,9 @@ done
 
 info "Instalando dependencias del sistema antes del menú."
 normalizar_repositorio_mozilla
+if [[ "${#DEPENDENCIAS_FALTANTES[@]}" -gt 0 || "${#DEPENDENCIAS_REPARAR[@]}" -gt 0 ]]; then
+    "${APT_PREFIX[@]}" env DEBIAN_FRONTEND=noninteractive apt-get update
+fi
 if [[ "${#DEPENDENCIAS_FALTANTES[@]}" -gt 0 ]]; then
     "${APT_PREFIX[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y "${DEPENDENCIAS_FALTANTES[@]}"
 fi
