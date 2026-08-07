@@ -1296,6 +1296,7 @@ def instalar_cursor_material(
         if resultado_clon.returncode != 0:
             detalle = resultado_clon.stderr.strip() or resultado_clon.stdout.strip()
             raise RuntimeError(f"No se pudo clonar Material Cursors: {detalle}")
+    adaptar_makefile_material_cursor()
     print("Construyendo cursores Material; este paso puede tardar unos minutos...")
     try:
         resultado = subprocess.run(
@@ -1311,6 +1312,41 @@ def instalar_cursor_material(
         ["sudo", "make", "-C", str(MATERIAL_CURSOR_DIR), "install"],
         sudo_password=sudo_password,
     )
+
+
+def adaptar_makefile_material_cursor() -> None:
+    """Adapta el Makefile antiguo de Material Cursors a Inkscape actual.
+
+    El proyecto original usa opciones retiradas de Inkscape 0.x/1.0
+    (``-z``, ``-e`` y ``--export-png``). Solo se modifican líneas que
+    invocan Inkscape para no alterar variables o reglas no relacionadas.
+    """
+    makefile = MATERIAL_CURSOR_DIR / "Makefile"
+    try:
+        contenido = makefile.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as error:
+        raise RuntimeError(f"No se pudo leer el Makefile de Material Cursors: {error}") from error
+
+    lineas_adaptadas: list[str] = []
+    cambios = 0
+    for linea in contenido.splitlines(keepends=True):
+        adaptada = linea
+        if "inkscape" in adaptada.lower():
+            adaptada = adaptada.replace("--export-png", "--export-filename")
+            adaptada = adaptada.replace(" -z ", " ").replace(" -z\t", "\t")
+            adaptada = adaptada.replace("\t-z ", "\t").replace("\t-z\t", "\t")
+            adaptada = re.sub(r"(?<![\w-])-e(?=\s)", "--export-filename", adaptada)
+        if adaptada != linea:
+            cambios += 1
+        lineas_adaptadas.append(adaptada)
+
+    if not cambios:
+        return
+    try:
+        makefile.write_text("".join(lineas_adaptadas), encoding="utf-8")
+    except OSError as error:
+        raise RuntimeError(f"No se pudo actualizar el Makefile para Inkscape: {error}") from error
+    print(f"Ajustadas {cambios} reglas antiguas de Inkscape en el Makefile de Material Cursors.")
 
 
 def configurar_bloqueo_cursor_energia(
