@@ -1776,7 +1776,7 @@ desktop-color: "#1a1b26"
 desktop-image: "{background}"
 title-text: "Ubuntu Customizer"
 
-+ boot_menu {
++ boot_menu {{
   left = 10%
   top = 22%
   width = 80%
@@ -1784,7 +1784,7 @@ title-text: "Ubuntu Customizer"
   item_color = "#c0caf5"
   selected_item_color = "#7dcfff"
   item_font = "DejaVu Sans 14"
-}
+}}
 """
 
 
