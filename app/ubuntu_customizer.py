@@ -2083,13 +2083,10 @@ def instalar_tokyonight_storm(
     instalar_wallpapers_tokyonight(dry_run=dry_run, progreso=progreso)
     if not destino.exists():
         ejecutar_comando(["git", "clone", "--depth", "1", REPOSITORIO_TOKYONIGHT, str(destino)], dry_run=dry_run)
-    comando_instalacion = [
+    comando_limpieza_temas = [
         "bash",
         "install.sh",
-        "--tweaks",
-        "storm",
-        "macos",
-        "float",
+        "--remove",
         "-t",
         "all",
         "-c",
@@ -2098,14 +2095,23 @@ def instalar_tokyonight_storm(
         "-s",
         "standard",
         "compact",
+    ]
+    comando_instalacion = [
+        "bash",
+        "install.sh",
+        "--tweaks",
+        "storm",
+        "macos",
+        "float",
         "-l",
     ]
     instalador = destino / "themes"
     if not dry_run and not (instalador / "install.sh").is_file():
         raise RuntimeError(f"No se encontró el instalador en {instalador / 'install.sh'}")
     if dry_run:
+        ejecutar_comando(comando_limpieza_temas, dry_run=True)
         ejecutar_comando(comando_instalacion, dry_run=True)
-        print("\nSe instalarían todas las variantes de color TokyoNight Storm, en tamaños estándar y compacto.")
+        print("\nSe conservará únicamente la variante TokyoNight Storm original.")
         configurar_grub(dry_run=True, progreso=progreso)
         configurar_gdm(dry_run=True, progreso=progreso)
         configurar_fuentes_y_escalado(dry_run=True, progreso=progreso)
@@ -2118,6 +2124,17 @@ def instalar_tokyonight_storm(
     comprobar_comando("git")
     comprobar_comando("gnome-shell")
     comprobar_comando("gnome-tweaks")
+    resultado_limpieza = subprocess.run(
+        comando_limpieza_temas,
+        cwd=instalador,
+        capture_output=True,
+        text=True,
+    )
+    if resultado_limpieza.returncode != 0:
+        detalle = resultado_limpieza.stderr.strip() or resultado_limpieza.stdout.strip()
+        raise RuntimeError(
+            f"La limpieza de variantes TokyoNight falló con código {resultado_limpieza.returncode}.\n{detalle}"
+        )
     resultado = subprocess.run(
         comando_instalacion,
         cwd=instalador,
