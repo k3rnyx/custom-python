@@ -40,7 +40,7 @@ La configuración global instala Zsh, Oh My Zsh, autocompletado, autosugerencias
 
 La personalización también aplica un tema GRUB TokyoNight: menú visible, cinco segundos de espera, colores TokyoNight y un tema en `/boot/grub/themes/ubuntu-customizer/theme.txt`. Se guarda una copia de `/etc/default/grub` dentro del respaldo previo.
 
-También personaliza el login GDM3 mediante un banner `Ubuntu Customizer · TokyoNight Storm` usando la configuración dconf oficial de GNOME. El cambio se aplica al siguiente inicio de sesión y no reinicia GDM automáticamente.
+También personaliza el login GDM3 mediante un banner `Ubuntu Customizer · TokyoNight Storm`, instala el tema GTK TokyoNight en `/usr/share/themes/` para que GDM pueda verlo, aplica colores oscuros y usa un fondo SVG TokyoNight Storm generado localmente en `/usr/share/backgrounds/ubuntu-customizer/`. Usa la configuración dconf oficial de GNOME; el cambio se aplica al siguiente inicio de sesión y no reinicia GDM automáticamente.
 
 Además configura un wallpaper dinámico TokyoNight para escritorio y pantalla de bloqueo, fuentes GNOME con JetBrains Mono para texto monoespaciado, escalado 1.0 y atajos `Ctrl+Alt+T` para la terminal y `Super+E` para Archivos. Los atajos existentes se conservan.
 

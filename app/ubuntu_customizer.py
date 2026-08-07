@@ -147,6 +147,7 @@ def crear_respaldo() -> Path:
     for ruta, nombre in (
         (Path("/etc/dconf/profile/gdm"), "gdm.profile"),
         (Path("/etc/dconf/db/gdm.d/01-ubuntu-customizer"), "gdm.keyfile"),
+        (Path("/usr/share/backgrounds/ubuntu-customizer/tokyonight-storm.svg"), "gdm.background.svg"),
     ):
         if ruta.is_file() and os.access(ruta, os.R_OK):
             shutil.copy2(ruta, destino / nombre)
@@ -204,6 +205,7 @@ def restaurar_respaldo() -> None:
     for nombre, ruta in (
         ("gdm.profile", "/etc/dconf/profile/gdm"),
         ("gdm.keyfile", "/etc/dconf/db/gdm.d/01-ubuntu-customizer"),
+        ("gdm.background.svg", "/usr/share/backgrounds/ubuntu-customizer/tokyonight-storm.svg"),
     ):
         archivo = origen / nombre
         ausente = origen / f"{nombre}.absent"
@@ -211,7 +213,10 @@ def restaurar_respaldo() -> None:
             ejecutar_comando(["sudo", "install", "-m", "0644", str(archivo), ruta])
         elif ausente.exists():
             ejecutar_comando(["sudo", "rm", "-f", ruta])
-    if (origen / "gdm.profile").exists() or (origen / "gdm.keyfile").exists() or (origen / "gdm.profile.absent").exists() or (origen / "gdm.keyfile.absent").exists():
+    if any(
+        (origen / nombre).exists() or (origen / f"{nombre}.absent").exists()
+        for nombre in ("gdm.profile", "gdm.keyfile", "gdm.background.svg")
+    ):
         ejecutar_comando(["sudo", "dconf", "update"])
     print(f"Respaldo restaurado: {origen}")
     LOGGER.info("Respaldo restaurado: %s", origen)
@@ -1610,7 +1615,6 @@ GRUB_SETTINGS = {
 }
 GRUB_THEME = """# Ubuntu Customizer · TokyoNight Storm
 desktop-color: "#1a1b26"
-desktop-image: ""
 title-text: "Ubuntu Customizer"
 
 + boot_menu {
@@ -1654,21 +1658,40 @@ def configurar_grub(
     with tempfile.TemporaryDirectory(prefix="ubuntu-customizer-grub-") as temporal:
         archivo_grub = Path(temporal) / "grub.default"
         archivo_tema = Path(temporal) / "theme.txt"
+        respaldo_grub = Path(temporal) / "grub.default.original"
         archivo_grub.write_text(contenido, encoding="utf-8")
         archivo_tema.write_text(GRUB_THEME, encoding="utf-8")
-        ejecutar_comando(
-            ["sudo", "install", "-m", "0644", str(archivo_grub), str(grub_default)],
-            sudo_password=sudo_password,
-        )
-        ejecutar_comando(
-            ["sudo", "install", "-d", "/boot/grub/themes/ubuntu-customizer"],
-            sudo_password=sudo_password,
-        )
-        ejecutar_comando(
-            ["sudo", "install", "-m", "0644", str(archivo_tema), GRUB_THEME_PATH],
-            sudo_password=sudo_password,
-        )
-        ejecutar_comando(["sudo", "update-grub"], sudo_password=sudo_password)
+        respaldo_grub.write_text(grub_default.read_text(encoding="utf-8"), encoding="utf-8")
+        try:
+            ejecutar_comando(
+                ["sudo", "install", "-m", "0644", str(archivo_grub), str(grub_default)],
+                sudo_password=sudo_password,
+            )
+            ejecutar_comando(
+                ["sudo", "install", "-d", "/boot/grub/themes/ubuntu-customizer"],
+                sudo_password=sudo_password,
+            )
+            ejecutar_comando(
+                ["sudo", "install", "-m", "0644", str(archivo_tema), GRUB_THEME_PATH],
+                sudo_password=sudo_password,
+            )
+            ejecutar_comando(["sudo", "update-grub"], sudo_password=sudo_password)
+        except subprocess.CalledProcessError as error:
+            print("update-grub falló; restaurando la configuración anterior de GRUB.")
+            ejecutar_comando(
+                ["sudo", "install", "-m", "0644", str(respaldo_grub), str(grub_default)],
+                sudo_password=sudo_password,
+            )
+            try:
+                ejecutar_comando(["sudo", "update-grub"], sudo_password=sudo_password)
+            except subprocess.CalledProcessError as restauracion_error:
+                raise RuntimeError(
+                    "Falló update-grub y también su restauración automática. "
+                    "Revisa /etc/default/grub manualmente."
+                ) from restauracion_error
+            raise RuntimeError(
+                "No se pudo aplicar el tema de GRUB; se restauró la configuración anterior."
+            ) from error
     _notificar(progreso, "GRUB TokyoNight", True)
     print("GRUB TokyoNight aplicado correctamente")
 
@@ -1677,10 +1700,56 @@ GDM_PROFILE = """user-db:user
 system-db:gdm
 file-db:/usr/share/gdm/greeter-dconf-defaults
 """
-GDM_KEYFILE = """[org/gnome/login-screen]
+GDM_BACKGROUND_PATH = "/usr/share/backgrounds/ubuntu-customizer/tokyonight-storm.svg"
+GDM_BACKGROUND = """<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080">
+<defs>
+  <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="#1a1b26"/>
+    <stop offset="0.55" stop-color="#24283b"/>
+    <stop offset="1" stop-color="#16161e"/>
+  </linearGradient>
+  <radialGradient id="glow" cx="50%" cy="45%" r="58%">
+    <stop offset="0" stop-color="#7aa2f7" stop-opacity="0.18"/>
+    <stop offset="1" stop-color="#7aa2f7" stop-opacity="0"/>
+  </radialGradient>
+</defs>
+<rect width="1920" height="1080" fill="url(#bg)"/>
+<rect width="1920" height="1080" fill="url(#glow)"/>
+<circle cx="1580" cy="210" r="270" fill="#bb9af7" opacity="0.08"/>
+<circle cx="270" cy="890" r="360" fill="#7dcfff" opacity="0.06"/>
+<path d="M0 830 C420 680 690 930 1030 770 S1570 520 1920 700 V1080 H0Z" fill="#1f2335" opacity="0.66"/>
+</svg>
+"""
+GDM_KEYFILE_TEMPLATE = """[org/gnome/login-screen]
 banner-message-enable=true
 banner-message-text='Ubuntu Customizer · TokyoNight Storm'
+
+[org/gnome/desktop/background]
+picture-uri='file:///usr/share/backgrounds/ubuntu-customizer/tokyonight-storm.svg'
+picture-uri-dark='file:///usr/share/backgrounds/ubuntu-customizer/tokyonight-storm.svg'
+color-shading-type='solid'
+primary-color='#1a1b26'
+secondary-color='#16161e'
+
+[org/gnome/desktop/interface]
+color-scheme='prefer-dark'
+gtk-theme='{gtk_theme}'
+accent-color='blue'
 """
+
+
+def instalar_tema_gdm(tema: str, *, dry_run: bool = False, sudo_password: str | None = None) -> None:
+    """Hace visible el tema GTK para el usuario de sistema de GDM."""
+    origen = _ruta_tema_instalado(tema)
+    destino = Path("/usr/share/themes") / tema
+    print(f"\nInstalando TokyoNight para GDM3: {destino}")
+    if dry_run:
+        print(f"  - copiaría {origen or 'la instalación TokyoNight'} al ámbito del sistema")
+        return
+    if origen is None:
+        raise RuntimeError(f"No se encontró el tema TokyoNight instalado: {tema}")
+    ejecutar_comando(["sudo", "install", "-d", str(destino)], sudo_password=sudo_password)
+    ejecutar_comando(["sudo", "cp", "-a", f"{origen}/.", str(destino)], sudo_password=sudo_password)
 
 
 def configurar_gdm(
@@ -1689,9 +1758,13 @@ def configurar_gdm(
     """Personaliza el greeter GDM3 usando el perfil dconf oficial del sistema."""
     _notificar(progreso, "Login GDM3 TokyoNight")
     print("\nConfigurando login GDM3 con TokyoNight")
+    tema = _tema_tokyonight_instalado() or "Tokyonight-Dark-Storm"
     if dry_run:
+        instalar_tema_gdm(tema, dry_run=True)
         print("  - instalaría /etc/dconf/profile/gdm")
         print("  - instalaría /etc/dconf/db/gdm.d/01-ubuntu-customizer")
+        print(f"  - instalaría el fondo TokyoNight Storm en {GDM_BACKGROUND_PATH}")
+        print("  - aplicaría colores oscuros TokyoNight Storm al greeter")
         print("  - ejecutaría dconf update")
         _notificar(progreso, "Login GDM3 TokyoNight", True)
         return
@@ -1700,10 +1773,13 @@ def configurar_gdm(
     with tempfile.TemporaryDirectory(prefix="ubuntu-customizer-gdm-") as temporal:
         perfil = Path(temporal) / "gdm"
         keyfile = Path(temporal) / "01-ubuntu-customizer"
+        fondo = Path(temporal) / "tokyonight-storm.svg"
         perfil.write_text(GDM_PROFILE, encoding="utf-8")
-        keyfile.write_text(GDM_KEYFILE, encoding="utf-8")
+        keyfile.write_text(GDM_KEYFILE_TEMPLATE.format(gtk_theme=tema), encoding="utf-8")
+        fondo.write_text(GDM_BACKGROUND, encoding="utf-8")
+        instalar_tema_gdm(tema, sudo_password=sudo_password)
         ejecutar_comando(
-            ["sudo", "install", "-d", "/etc/dconf/profile", "/etc/dconf/db/gdm.d"],
+            ["sudo", "install", "-d", "/etc/dconf/profile", "/etc/dconf/db/gdm.d", "/usr/share/backgrounds/ubuntu-customizer"],
             sudo_password=sudo_password,
         )
         ejecutar_comando(
@@ -1712,6 +1788,10 @@ def configurar_gdm(
         )
         ejecutar_comando(
             ["sudo", "install", "-m", "0644", str(keyfile), "/etc/dconf/db/gdm.d/01-ubuntu-customizer"],
+            sudo_password=sudo_password,
+        )
+        ejecutar_comando(
+            ["sudo", "install", "-m", "0644", str(fondo), GDM_BACKGROUND_PATH],
             sudo_password=sudo_password,
         )
         ejecutar_comando(["sudo", "dconf", "update"], sudo_password=sudo_password)
