@@ -202,7 +202,9 @@ __bline() {
 }
 
 banner_custom_01() {
-    local u="${USER:-?}" h=$(hostname 2>/dev/null || echo '?')
+    local u="${USER:-?}"
+    local h
+    h=$(hostname 2>/dev/null || echo '?')
     local i=$((TERM_W-6))
     printf -v b '%*s' "$((TERM_W-2))" ''; b="${b// /═}"
     echo
@@ -219,7 +221,9 @@ banner_custom_01() {
 }
 
 banner_custom_02() {
-    local u="${USER:-?}" h=$(hostname 2>/dev/null || echo '?')
+    local u="${USER:-?}"
+    local h
+    h=$(hostname 2>/dev/null || echo '?')
     local i=$((TERM_W-6))
     printf -v b '%*s' "$((TERM_W-2))" ''; b="${b// /═}"
     echo
@@ -236,7 +240,9 @@ banner_custom_02() {
 }
 
 banner_custom_03() {
-    local u="${USER:-?}" h=$(hostname 2>/dev/null || echo '?')
+    local u="${USER:-?}"
+    local h
+    h=$(hostname 2>/dev/null || echo '?')
     local i=$((TERM_W-6))
     printf -v b '%*s' "$((TERM_W-2))" ''; b="${b// /═}"
     echo
@@ -249,7 +255,9 @@ banner_custom_03() {
 }
 
 banner_custom_04() {
-    local u="${USER:-?}" h=$(hostname 2>/dev/null || echo '?')
+    local u="${USER:-?}"
+    local h
+    h=$(hostname 2>/dev/null || echo '?')
     local i=$((TERM_W-6))
     printf -v b '%*s' "$((TERM_W-2))" ''; b="${b// /═}"
     printf -v d '%*s' "$i" ''; d="${d// /─}"
@@ -498,7 +506,8 @@ banner_fastfetch() {
     printf -v sep '%*s' "$((i - 2))" ''; sep="${sep// /─}"
     echo -e "${TN_CYAN}║${RST}  ${DIM}${TN_PURPLE}${sep}${RST}  ${TN_CYAN}║${RST}"
 
-    local hl=$(echo "$host_line" | awk '{$1=$1};1')
+    local hl
+    hl=$(echo "$host_line" | awk '{$1=$1};1')
     local hhlen=${#hl}
     local hhpad=$(((i - hhlen) / 2))
     printf -v hhp '%*s' "$hhpad" ''
@@ -529,7 +538,9 @@ banner_fastfetch() {
 
 # ── Custom ASCII banners ─────────────────────────────
 banner_custom_05() {
-    local u="${USER:-?}" h=$(hostname 2>/dev/null || echo '?')
+    local u="${USER:-?}"
+    local h
+    h=$(hostname 2>/dev/null || echo '?')
     local i=$((TERM_W-6))
     printf -v b '%*s' "$((TERM_W-2))" ''; b="${b// /═}"
     echo
@@ -547,8 +558,11 @@ banner_custom_05() {
 }
 
 banner_custom_06() {
-    local u="${USER:-?}" h=$(hostname 2>/dev/null || echo '?')
-    local d=$(date '+%Y-%m-%d')
+    local u="${USER:-?}"
+    local h
+    h=$(hostname 2>/dev/null || echo '?')
+    local d
+    d=$(date '+%Y-%m-%d')
     local i=$((TERM_W-6))
     printf -v b '%*s' "$((TERM_W-2))" ''; b="${b// /═}"
     printf -v s '%*s' "$i" ''; s="${s// /═}"
@@ -577,10 +591,15 @@ show_banner() {
     available+=(banner_custom_ascii banner_custom_05 banner_custom_06)
 
     local idx=$((RANDOM % ${#available[@]}))
+    # Variables consumidas por el lanzador después de sourcear este archivo.
+    # shellcheck disable=SC2034
     BANNER_LAST_INDEX=$((idx + 1))
+    # shellcheck disable=SC2034
     BANNER_TOTAL=${#available[@]}
+    # shellcheck disable=SC2034
     BANNER_LAST_NAME="${available[$idx]}"
     if ! "${available[$idx]}"; then
+        # shellcheck disable=SC2034
         BANNER_LAST_NAME="banner_text_only (fallback)"
         banner_text_only
     fi

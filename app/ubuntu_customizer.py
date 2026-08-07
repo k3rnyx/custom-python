@@ -6,6 +6,7 @@ import argparse
 import contextlib
 import curses
 import io
+import logging
 import os
 import json
 import re
@@ -21,7 +22,13 @@ from collections.abc import Callable
 from pathlib import Path
 from urllib.parse import urljoin
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen, urlretrieve
+from urllib.request import Request, urlopen
+
+ESTADO_BASE = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state"))
+ESTADO_DIR = ESTADO_BASE / "ubuntu-customizer"
+LOG_FILE = ESTADO_DIR / "ubuntu-customizer.log"
+BACKUP_DIR = ESTADO_DIR / "backups"
+LOGGER = logging.getLogger("ubuntu-customizer")
 
 try:
     from InquirerPy import inquirer
@@ -58,6 +65,7 @@ def ejecutar_comando(
 ) -> None:
     """Muestra y ejecuta un comando, o solo lo muestra en simulación."""
     print(f"\n$ {' '.join(comando)}")
+    LOGGER.info("Comando: %s", " ".join(comando))
     if not dry_run:
         es_apt = "apt-get" in comando
         if comando and comando[0] == "sudo" and sudo_password is not None:
@@ -99,6 +107,82 @@ def comprobar_ubuntu() -> None:
         )
 
 
+def comprobar_entorno() -> None:
+    """Comprueba herramientas y versión mínima antes de modificar el sistema."""
+    if shutil.which("apt-get") is None:
+        raise RuntimeError("Este instalador requiere apt-get (Ubuntu/Debian).")
+    version = ""
+    try:
+        version = subprocess.check_output(["lsb_release", "-rs"], text=True).strip()
+    except (OSError, subprocess.CalledProcessError):
+        pass
+    if version:
+        try:
+            if tuple(int(parte) for parte in version.split(".")[:2]) < (22, 4):
+                raise RuntimeError(f"Ubuntu {version} no está soportado; se requiere Ubuntu 22.04 o superior.")
+        except ValueError:
+            LOGGER.warning("No se pudo interpretar la versión de Ubuntu: %s", version)
+
+
+def crear_respaldo() -> Path:
+    """Guarda configuraciones del usuario antes de aplicar cambios."""
+    marca = f"{time.strftime('%Y%m%d-%H%M%S')}-{secrets.token_hex(3)}"
+    destino = BACKUP_DIR / marca
+    destino.mkdir(parents=True, exist_ok=False)
+    archivos = (
+        Path.home() / ".zshrc",
+        Path.home() / ".bashrc",
+        Path.home() / ".gitconfig",
+        Path.home() / ".npmrc",
+    )
+    for archivo in archivos:
+        if archivo.exists():
+            shutil.copy2(archivo, destino / archivo.name)
+    for ruta, nombre in (
+        ("/org/gnome/desktop/interface/", "desktop-interface.dconf"),
+        ("/org/gnome/shell/extensions/dash-to-dock/", "dash-to-dock.dconf"),
+        ("/org/gnome/terminal/legacy/", "gnome-terminal.dconf"),
+    ):
+        if shutil.which("dconf") is None:
+            LOGGER.warning("No se pudo respaldar %s: dconf no está instalado", ruta)
+            continue
+        resultado = subprocess.run(["dconf", "dump", ruta], capture_output=True, text=True)
+        if resultado.returncode == 0 and resultado.stdout:
+            (destino / nombre).write_text(resultado.stdout, encoding="utf-8")
+    (destino / "README.txt").write_text(
+        "Respaldo creado por Ubuntu Customizer. Usa --restore para restaurar el más reciente.\n",
+        encoding="utf-8",
+    )
+    LOGGER.info("Respaldo creado: %s", destino)
+    print(f"Respaldo creado en: {destino}")
+    return destino
+
+
+def restaurar_respaldo() -> None:
+    """Restaura el respaldo más reciente sin eliminar archivos del usuario."""
+    if not BACKUP_DIR.is_dir():
+        raise RuntimeError("No existe ningún respaldo para restaurar.")
+    respaldos = sorted((ruta for ruta in BACKUP_DIR.iterdir() if ruta.is_dir()), reverse=True)
+    if not respaldos:
+        raise RuntimeError("No existe ningún respaldo para restaurar.")
+    origen = respaldos[0]
+    for nombre in (".zshrc", ".bashrc", ".gitconfig", ".npmrc"):
+        archivo = origen / nombre
+        if archivo.exists():
+            shutil.copy2(archivo, Path.home() / nombre)
+    esquemas = (
+        ("desktop-interface.dconf", "/org/gnome/desktop/interface/"),
+        ("dash-to-dock.dconf", "/org/gnome/shell/extensions/dash-to-dock/"),
+        ("gnome-terminal.dconf", "/org/gnome/terminal/legacy/"),
+    )
+    for nombre, ruta in esquemas:
+        archivo = origen / nombre
+        if archivo.exists() and shutil.which("dconf"):
+            subprocess.run(["dconf", "load", ruta], input=archivo.read_text(encoding="utf-8"), text=True, check=True)
+    print(f"Respaldo restaurado: {origen}")
+    LOGGER.info("Respaldo restaurado: %s", origen)
+
+
 def comprobar_comando(nombre: str) -> None:
     if shutil.which(nombre) is None:
         raise RuntimeError(f"No se encontró el comando requerido: {nombre}")
@@ -107,6 +191,7 @@ def comprobar_comando(nombre: str) -> None:
 EQUIVALENTES_PAQUETES = {
     "docker-compose-v2": ("docker-compose-plugin",),
 }
+PAQUETES_OPCIONALES = {"aircrack-ng", "sqlmap", "hydra", "john", "nikto", "proxychains4"}
 
 
 def _paquete_instalado(nombre: str) -> bool:
@@ -127,6 +212,13 @@ def _dependencias_faltantes(dependencias: list[str]) -> list[str]:
     """Devuelve solo paquetes ausentes, respetando paquetes equivalentes."""
     faltantes = []
     for paquete in dependencias:
+        if paquete in PAQUETES_OPCIONALES:
+            disponible = subprocess.run(
+                ["apt-cache", "show", paquete], capture_output=True, text=True
+            ).returncode == 0
+            if not disponible:
+                print(f"Herramienta opcional no disponible; se omite: {paquete}")
+                continue
         if _paquete_instalado(paquete) and not _paquete_requiere_reparacion(paquete):
             continue
         equivalentes = EQUIVALENTES_PAQUETES.get(paquete, ())
@@ -625,16 +717,20 @@ PERFILES = {
         "nombre": "WanTher — Fullstack Angular",
         "paquetes": (
             "nodejs", "npm", "postgresql-client", "redis-tools", "docker.io",
-            "docker-compose-v2", "build-essential", "python3-pip", "python3-venv",
+            "docker-compose-v2", "build-essential", "make", "gcc", "g++",
+            "python3-dev", "python3-pip", "python3-venv",
         ),
+        "herramientas": "Angular CLI, pnpm/corepack, Node.js, Docker, PostgreSQL y Redis",
     },
     "k3rnyx": {
         "nombre": "K3rNyx — Seguridad informática",
         "paquetes": (
             "nmap", "wireshark", "tshark", "tcpdump", "netcat-openbsd", "dnsutils",
             "whois", "traceroute", "openssl", "gnupg", "ufw", "auditd", "lynis",
-            "clamav", "lsof", "strace", "gdb", "yara",
+            "clamav", "lsof", "strace", "gdb", "yara", "aircrack-ng", "sqlmap",
+            "hydra", "john", "nikto", "proxychains4",
         ),
+        "herramientas": "Reconocimiento, captura de tráfico, auditoría web y análisis local",
     },
 }
 Progreso = Callable[[str, bool], None]
@@ -878,6 +974,7 @@ def configurar_zsh(
     bloque = (
         f"{ZSH_MARKER_START}\n"
         'export ZSH="$HOME/.oh-my-zsh"\n'
+        'export PATH="$HOME/.local/bin:$PATH"\n'
         'ZSH_THEME=""\n'
         f"plugins=({plugins})\n"
         "HIST_STAMPS=\"yyyy-mm-dd\"\n"
@@ -945,7 +1042,14 @@ def instalar_jetbrains_mono_nerd(*, dry_run: bool = False) -> None:
     FONT_DIR.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="ubuntu-customizer-font-") as temporal:
         archivo = Path(temporal) / "JetBrainsMono.tar.xz"
-        urlretrieve(NERD_FONT_URL, archivo)
+        solicitud = Request(
+            NERD_FONT_URL,
+            headers={"User-Agent": "ubuntu-customizer/1.0 (+font installer)"},
+        )
+        with urlopen(solicitud, timeout=120) as respuesta, archivo.open("wb") as salida:
+            shutil.copyfileobj(respuesta, salida)
+        if archivo.stat().st_size == 0:
+            raise RuntimeError("La descarga de JetBrains Mono está vacía.")
         subprocess.run(["tar", "-xJf", str(archivo), "-C", str(FONT_DIR)], check=True)
     comprobar_comando("fc-cache")
     subprocess.run(["fc-cache", "-f", str(FONT_DIR)], check=True, capture_output=True, text=True)
@@ -956,6 +1060,40 @@ def configurar_entorno_terminal(
 ) -> None:
     configurar_zsh(dry_run=dry_run, progreso=progreso, perfil=perfil)
     instalar_jetbrains_mono_nerd(dry_run=dry_run)
+
+
+def configurar_wanther(*, dry_run: bool = False) -> None:
+    """Prepara las herramientas que no vienen completas en los repositorios."""
+    print("\nPreparando herramientas de desarrollo WanTher")
+    comandos = (
+        ["npm", "config", "set", "prefix", str(Path.home() / ".local")],
+        ["npm", "install", "--location=global", "pnpm"],
+        ["npm", "install", "--location=global", "@angular/cli"],
+        ["git", "config", "--global", "init.defaultBranch", "main"],
+        ["git", "config", "--global", "alias.st", "status"],
+        ["git", "config", "--global", "alias.co", "checkout"],
+    )
+    for comando in comandos:
+        ejecutar_comando(comando, dry_run=dry_run)
+    if shutil.which("docker") or dry_run:
+        print("Aviso: Docker queda instalado; para usarlo sin sudo ejecuta una vez:")
+        print("  sudo usermod -aG docker $USER && newgrp docker")
+        print("  El script no modifica el grupo automáticamente para evitar cerrar sesiones activas.")
+
+
+def configurar_k3rnyx(*, dry_run: bool = False) -> None:
+    """Crea una estructura de trabajo para laboratorios y evidencias."""
+    print("\nPreparando espacio de trabajo K3rNyx")
+    base = Path.home() / "Security"
+    carpetas = ("recon", "captures", "reports", "labs", "wordlists")
+    if dry_run:
+        print(f"Crear directorios: {', '.join(str(base / carpeta) for carpeta in carpetas)}")
+        print("Aviso: UFW, auditd y Wireshark requieren configuración adicional según el laboratorio.")
+        return
+    for carpeta in carpetas:
+        (base / carpeta).mkdir(parents=True, exist_ok=True)
+    print(f"Espacio creado en {base}")
+    print("Aviso: no se activa UFW automáticamente; revisa tus reglas antes de habilitarlo.")
 
 
 def _tema_tokyonight_instalado() -> str | None:
@@ -1262,6 +1400,9 @@ def instalar_tokyonight_storm(
     destino = Path.home() / CARPETA_INSTALACION
     if perfil not in PERFILES:
         raise RuntimeError(f"Perfil no reconocido: {perfil}")
+    if not dry_run:
+        if os.environ.get("UBUNTU_CUSTOMIZER_BACKUP_DONE") != "1":
+            crear_respaldo()
     dependencias = [
         "git",
         "gnome-shell",
@@ -1314,6 +1455,10 @@ def instalar_tokyonight_storm(
         print("\nTodas las dependencias del sistema ya están instaladas.")
     _notificar(progreso, "Dependencias del sistema", True)
     configurar_entorno_terminal(dry_run=dry_run, progreso=progreso, perfil=perfil)
+    if perfil == "wanther":
+        configurar_wanther(dry_run=dry_run)
+    else:
+        configurar_k3rnyx(dry_run=dry_run)
     reducir_iconos_sea(
         dry_run=dry_run,
         progreso=progreso,
@@ -1400,6 +1545,9 @@ def argumentos() -> argparse.Namespace:
         help="Aplica un tema o muestra la configuración actual",
     )
     parser.add_argument("--dry-run", action="store_true", help="Solo muestra lo que se haría")
+    parser.add_argument("--yes", action="store_true", help="No pedir confirmación en modo directo")
+    parser.add_argument("--restore", action="store_true", help="Restaura el respaldo más reciente")
+    parser.add_argument("--backup-only", action="store_true", help="Crea un respaldo y termina")
     parser.add_argument(
         "--perfil",
         choices=tuple(PERFILES),
@@ -1412,8 +1560,29 @@ def argumentos() -> argparse.Namespace:
 def main() -> int:
     args = argumentos()
     try:
+        if args.dry_run and (args.restore or args.backup_only):
+            raise RuntimeError("Las operaciones de respaldo y restauración no pueden combinarse con --dry-run.")
+        if not args.dry_run:
+            ESTADO_DIR.mkdir(parents=True, exist_ok=True)
+            logging.basicConfig(
+                filename=LOG_FILE,
+                level=logging.INFO,
+                format="%(asctime)s %(levelname)s %(message)s",
+            )
         comprobar_ubuntu()
+        comprobar_entorno()
+        if args.backup_only:
+            crear_respaldo()
+            return 0
+        if args.restore:
+            restaurar_respaldo()
+            return 0
         if args.tema == "tokyonight-storm":
+            if not args.dry_run and not args.yes and sys.stdin.isatty():
+                respuesta = input("Se modificarán paquetes y configuración de Ubuntu. ¿Continuar? [s/N] ").strip().lower()
+                if respuesta not in ("s", "si", "sí", "y", "yes"):
+                    print("Operación cancelada.")
+                    return 0
             instalar_tokyonight_storm(
                 dry_run=args.dry_run,
                 progreso=progreso_cli,

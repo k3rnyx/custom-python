@@ -5,19 +5,25 @@ set -Eeuo pipefail
 # Evita que una pregunta de debconf deje bloqueado el proceso en segundo plano.
 export DEBIAN_FRONTEND=noninteractive
 
-SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-PROJECT_DIR="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
+SCRIPT_DIR="$(CDPATH=; cd -- "$(dirname -- "$0")" && pwd -P)"
+PROJECT_DIR="$(CDPATH=; cd -- "$SCRIPT_DIR/.." && pwd -P)"
 VENV_DIR="$PROJECT_DIR/.venv"
 
 # En una simulación no debemos crear archivos ni acceder a la red.  El motor
 # Python solo necesita InquirerPy para el menú interactivo; en modo dry-run
 # puede usar el fallback de curses y ejecutarse con el Python del sistema.
 DRY_RUN=0
-for argumento in "$@"; do
-    if [[ "$argumento" == "--dry-run" ]]; then
-        DRY_RUN=1
-        break
-    fi
+PROFILE=wanther
+SETUP_ARGS=("$@")
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --dry-run) DRY_RUN=1; shift ;;
+        --perfil)
+            PROFILE="${2:-wanther}"
+            shift 2
+            ;;
+        *) shift ;;
+    esac
 done
 
 if [[ "$DRY_RUN" -eq 1 ]]; then
@@ -25,7 +31,7 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
         printf '\nError: --dry-run requiere python3 instalado.\n' >&2
         exit 1
     fi
-    exec python3 "$SCRIPT_DIR/ubuntu_customizer.py" "$@"
+    exec python3 "$SCRIPT_DIR/ubuntu_customizer.py" "${SETUP_ARGS[@]}"
 fi
 
 info() {
@@ -46,21 +52,49 @@ if [[ "$EUID" -ne 0 ]]; then
     APT_PREFIX=(sudo)
 fi
 
-# Se instalan antes de iniciar el menú para que cualquier perfil pueda
-# ejecutarse inmediatamente después de seleccionar una opción.
+# Python es necesario para crear el respaldo previo. En una instalación
+# mínima de Ubuntu puede no existir todavía; se instala únicamente este
+# prerrequisito antes de continuar.
+if ! command -v python3 >/dev/null 2>&1; then
+    info "Instalando el prerrequisito mínimo python3 para crear el respaldo."
+    "${APT_PREFIX[@]}" env DEBIAN_FRONTEND=noninteractive apt-get update
+    "${APT_PREFIX[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y python3
+fi
+
+info "Creando respaldo antes de modificar paquetes o repositorios."
+python3 "$SCRIPT_DIR/ubuntu_customizer.py" --backup-only --perfil "$PROFILE"
+export UBUNTU_CUSTOMIZER_BACKUP_DONE=1
+
+# Solo se instalan aquí las dependencias comunes y las del perfil elegido.
+# Antes se instalaban las herramientas de ambos perfiles incluso cuando el
+# usuario solo necesitaba uno.
 DEPENDENCIAS_SISTEMA=(
-    sudo python3 python3-pip python3-venv
-    git gnome-shell gnome-shell-extensions gnome-shell-ubuntu-extensions
+    sudo ca-certificates python3 python3-dev python3-pip python3-venv
+    git git-lfs gnome-shell gnome-shell-extensions gnome-shell-ubuntu-extensions
     gnome-shell-extension-manager gnome-tweaks sassc gtk2-engines-murrine
-    gnome-themes-extra dconf-cli zsh curl fontconfig fzf tmux
+    gnome-themes-extra dconf-cli zsh curl wget unzip fontconfig fzf tmux
     direnv ripgrep fd-find bat jq zoxide eza btop tealdeer neovim shellcheck shfmt
     deepin-icon-theme papirus-icon-theme
-    libglib2.0-bin
+    libglib2.0-bin pkg-config libssl-dev libffi-dev
+)
+
+WANTHER_DEPENDENCIAS=(
     nodejs npm postgresql-client redis-tools docker.io docker-compose-v2
-    build-essential
+    build-essential make gcc g++
+)
+
+K3RNYX_DEPENDENCIAS=(
     nmap wireshark tshark tcpdump netcat-openbsd dnsutils whois traceroute
     openssl gnupg ufw auditd lynis clamav lsof strace gdb yara
+    aircrack-ng sqlmap hydra john nikto proxychains4
 )
+K3RNYX_OPCIONALES=(aircrack-ng sqlmap hydra john nikto proxychains4)
+
+case "$PROFILE" in
+    wanther) DEPENDENCIAS_SISTEMA+=("${WANTHER_DEPENDENCIAS[@]}" ) ;;
+    k3rnyx) DEPENDENCIAS_SISTEMA+=("${K3RNYX_DEPENDENCIAS[@]}" ) ;;
+    *) printf '\nError: perfil no reconocido: %s\n' "$PROFILE" >&2; exit 1 ;;
+esac
 
 paquete_instalado() {
     [[ "$(dpkg-query -W -f='${db:Status-Status}' "$1" 2>/dev/null || true)" == "installed" ]]
@@ -78,6 +112,10 @@ dependencia_cubierta() {
         docker-compose-v2) paquete_instalado docker-compose-plugin ;;
         *) return 1 ;;
     esac
+}
+
+paquete_disponible() {
+    apt-cache show "$1" >/dev/null 2>&1
 }
 
 instalar_aplicaciones() {
@@ -183,7 +221,15 @@ normalizar_repositorio_mozilla() {
 
 DEPENDENCIAS_FALTANTES=()
 DEPENDENCIAS_REPARAR=()
+info "Perfil seleccionado: $PROFILE"
+info "Actualizando índices de paquetes."
+normalizar_repositorio_mozilla
+"${APT_PREFIX[@]}" env DEBIAN_FRONTEND=noninteractive apt-get update
 for paquete in "${DEPENDENCIAS_SISTEMA[@]}"; do
+    if [[ " ${K3RNYX_OPCIONALES[*]} " == *" $paquete "* ]] && ! paquete_disponible "$paquete"; then
+        printf '[ubuntu-customizer] Herramienta opcional no disponible; se omite: %s\n' "$paquete"
+        continue
+    fi
     if paquete_instalado "$paquete"; then
         if paquete_requiere_reparacion "$paquete"; then
             printf '[ubuntu-customizer] Paquete instalado pero incompleto: %s; se reparará.\n' "$paquete"
@@ -198,11 +244,7 @@ for paquete in "${DEPENDENCIAS_SISTEMA[@]}"; do
     DEPENDENCIAS_FALTANTES+=("$paquete")
 done
 
-info "Instalando dependencias del sistema antes del menú."
-normalizar_repositorio_mozilla
-if [[ "${#DEPENDENCIAS_FALTANTES[@]}" -gt 0 || "${#DEPENDENCIAS_REPARAR[@]}" -gt 0 ]]; then
-    "${APT_PREFIX[@]}" env DEBIAN_FRONTEND=noninteractive apt-get update
-fi
+info "Instalando dependencias comunes y específicas del perfil."
 if [[ "${#DEPENDENCIAS_FALTANTES[@]}" -gt 0 ]]; then
     "${APT_PREFIX[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y "${DEPENDENCIAS_FALTANTES[@]}"
 fi
@@ -213,9 +255,11 @@ if [[ "${#DEPENDENCIAS_FALTANTES[@]}" -eq 0 && "${#DEPENDENCIAS_REPARAR[@]}" -eq
     printf '%s\n' '[ubuntu-customizer] Todas las dependencias del sistema ya están instaladas.'
 fi
 
-printf '%s\n' '@@PROGRESS START Aplicaciones de desarrollo'
-instalar_aplicaciones
-printf '%s\n' '@@PROGRESS DONE Aplicaciones de desarrollo'
+if [[ "$PROFILE" == "wanther" ]]; then
+    printf '%s\n' '@@PROGRESS START Aplicaciones de desarrollo'
+    instalar_aplicaciones
+    printf '%s\n' '@@PROGRESS DONE Aplicaciones de desarrollo'
+fi
 
 if [[ ! -x "$VENV_DIR/bin/python" ]]; then
     info "Preparando el entorno aislado de Ubuntu Customizer."
@@ -232,4 +276,4 @@ info "Instalando dependencias del menú."
 printf '%s\n' '@@PROGRESS DONE Preparando entorno Python'
 
 info "Iniciando Ubuntu Customizer."
-exec "$VENV_DIR/bin/python" "$SCRIPT_DIR/ubuntu_customizer.py" "$@"
+exec "$VENV_DIR/bin/python" "$SCRIPT_DIR/ubuntu_customizer.py" "${SETUP_ARGS[@]}"

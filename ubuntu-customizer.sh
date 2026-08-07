@@ -2,7 +2,7 @@
 
 set -Eeuo pipefail
 
-SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+SCRIPT_DIR="$(CDPATH=; cd -- "$(dirname -- "$0")" && pwd -P)"
 PYTHON_INSTALLER="$SCRIPT_DIR/app/setup.sh"
 
 source "$SCRIPT_DIR/lib/ui.sh"
@@ -30,6 +30,7 @@ BANNER_LINES=0
 MENU_START=0
 MENU_PADDING=60
 DRY_RUN=0
+ASSUME_YES=0
 ACTION=menu
 PROFILE=wanther
 
@@ -88,14 +89,21 @@ run_python() {
         args+=(--dry-run)
         log_info "Simulación: bash $PYTHON_INSTALLER ${args[*]}"
     fi
+    if [[ "$ASSUME_YES" -eq 1 ]]; then
+        args+=(--yes)
+    fi
 
     bash "$PYTHON_INSTALLER" "${args[@]}"
+}
+
+run_restore() {
+    [[ -f "$SCRIPT_DIR/app/ubuntu_customizer.py" ]] || fail "No se encontró el motor Python"
+    python3 "$SCRIPT_DIR/app/ubuntu_customizer.py" --restore
 }
 
 PROGRESS_TASKS=(
     "Preparando entorno Python"
     "Dependencias del sistema"
-    "Aplicaciones de desarrollo"
     "Zsh, Oh My Zsh y fuente Nerd"
     "Iconos Deepin SEA"
     "Extensiones de productividad"
@@ -333,8 +341,10 @@ parse_args() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --tema) ACTION=tema ;;
-            --mostrar) ACTION=mostrar ;;
+        --mostrar) ACTION=mostrar ;;
+        --restore) ACTION=restore ;;
             --dry-run) DRY_RUN=1 ;;
+            --yes) ASSUME_YES=1 ;;
             --perfil)
                 [[ $# -ge 2 ]] || fail "--perfil requiere wanther o k3rnyx"
                 PROFILE="$2"
@@ -343,7 +353,7 @@ parse_args() {
                 shift
                 ;;
             -h|--help)
-                printf 'Uso: %s [--tema|--mostrar] [--perfil wanther|k3rnyx] [--dry-run]\n' "$0"
+                printf 'Uso: %s [--tema|--mostrar|--restore] [--perfil wanther|k3rnyx] [--dry-run] [--yes]\n' "$0"
                 exit 0
                 ;;
             *) fail "Opción no reconocida: $1" ;;
@@ -355,6 +365,10 @@ parse_args() {
 main() {
     parse_args "$@"
     check_ubuntu
+    if [[ "$ACTION" == "restore" ]]; then
+        run_restore
+        return 0
+    fi
     avisar_actualizacion
     case "$ACTION" in
         tema) run_python --tema tokyonight-storm --perfil "$PROFILE" ;;

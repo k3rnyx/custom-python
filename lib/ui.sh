@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# Exported as part of the public color palette for scripts that source ui.sh.
+# shellcheck disable=SC2034
 readonly TN_BG='\e[48;2;26;27;38m'
 readonly TN_FG='\e[38;2;192;202;245m'
 readonly TN_CYAN='\e[38;2;125;207;255m'
@@ -121,21 +123,4 @@ prompt_input() {
     echo -ne "  ${TN_PURPLE}?${RST}  ${TN_FG}${label} ${TN_CYAN}[${default}]${RST} " >/dev/tty
     read -r val || true
     echo "${val:-$default}"
-}
-
-_apt_ensure() {
-    local missing=()
-    for pkg in "$@"; do
-        dpkg -s "$pkg" 2>/dev/null | grep -qi 'Status.*installed' || missing+=("$pkg")
-    done
-    [ ${#missing[@]} -eq 0 ] && return 0
-
-    sudo -v 2>/dev/null || true
-    while sudo fuser /var/lib/dpkg/lock-frontend /var/lib/apt/lists/lock /var/cache/apt/archives/lock &>/dev/null; do
-        sleep 5
-    done
-    sudo rm -f /var/lib/dpkg/lock-frontend /var/lib/apt/lists/lock /var/cache/apt/archives/lock 2>/dev/null
-    sudo dpkg --configure -a 2>/dev/null
-
-    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "${missing[@]}"
 }
