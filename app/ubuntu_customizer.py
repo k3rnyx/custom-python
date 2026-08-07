@@ -1273,18 +1273,40 @@ def instalar_cursor_material(
         print(f"  - clonaría {REPOSITORIO_MATERIAL_CURSOR} en {MATERIAL_CURSOR_DIR}")
         print("  - ejecutaría make build y sudo make install")
         return
-    if not MATERIAL_CURSOR_DIR.is_dir():
-        ejecutar_comando(
-            ["git", "clone", "--depth", "1", REPOSITORIO_MATERIAL_CURSOR, str(MATERIAL_CURSOR_DIR)]
+    comprobar_comando("git")
+    repositorio_valido = (MATERIAL_CURSOR_DIR / ".git").is_dir() and (MATERIAL_CURSOR_DIR / "Makefile").is_file()
+    if not repositorio_valido:
+        if MATERIAL_CURSOR_DIR.exists() or MATERIAL_CURSOR_DIR.is_symlink():
+            print(f"Eliminando clon incompleto: {MATERIAL_CURSOR_DIR}")
+            if MATERIAL_CURSOR_DIR.is_symlink():
+                MATERIAL_CURSOR_DIR.unlink()
+            else:
+                shutil.rmtree(MATERIAL_CURSOR_DIR)
+        MATERIAL_CURSOR_DIR.parent.mkdir(parents=True, exist_ok=True)
+        print("Clonando Material Cursors...")
+        try:
+            resultado_clon = subprocess.run(
+                ["git", "clone", "--depth", "1", REPOSITORIO_MATERIAL_CURSOR, str(MATERIAL_CURSOR_DIR)],
+                text=True,
+                capture_output=True,
+                timeout=180,
+            )
+        except subprocess.TimeoutExpired as error:
+            raise RuntimeError("El clon de Material Cursors superó el límite de 3 minutos.") from error
+        if resultado_clon.returncode != 0:
+            detalle = resultado_clon.stderr.strip() or resultado_clon.stdout.strip()
+            raise RuntimeError(f"No se pudo clonar Material Cursors: {detalle}")
+    print("Construyendo cursores Material; este paso puede tardar unos minutos...")
+    try:
+        resultado = subprocess.run(
+            ["make", "-C", str(MATERIAL_CURSOR_DIR), "-j2", "build"],
+            text=True,
+            timeout=900,
         )
-    resultado = subprocess.run(
-        ["make", "-C", str(MATERIAL_CURSOR_DIR), "build"],
-        capture_output=True,
-        text=True,
-    )
+    except subprocess.TimeoutExpired as error:
+        raise RuntimeError("La creación de Material Cursor superó el límite de 15 minutos.") from error
     if resultado.returncode != 0:
-        detalle = resultado.stderr.strip() or resultado.stdout.strip()
-        raise RuntimeError(f"No se pudo construir Material Cursor: {detalle}")
+        raise RuntimeError(f"No se pudo construir Material Cursor; make terminó con código {resultado.returncode}.")
     ejecutar_comando(
         ["sudo", "make", "-C", str(MATERIAL_CURSOR_DIR), "install"],
         sudo_password=sudo_password,
