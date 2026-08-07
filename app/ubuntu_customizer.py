@@ -2221,7 +2221,7 @@ def instalar_tokyonight_storm(
         "shfmt",
         "make",
         "inkscape",
-        "xcursorgen",
+        "x11-apps",
         "plymouth-themes",
         "libglib2.0-bin",
         *PERFILES[perfil]["paquetes"],
@@ -2230,7 +2230,7 @@ def instalar_tokyonight_storm(
     _notificar(progreso, "Dependencias del sistema")
     faltantes = _dependencias_faltantes(dependencias)
     if faltantes:
-        paquetes_cursor = {"inkscape", "xcursorgen"}
+        paquetes_cursor = {"inkscape", "x11-apps"}
         indices_desactualizados = any(
             paquete in paquetes_cursor
             and subprocess.run(["apt-cache", "show", paquete], capture_output=True).returncode != 0
