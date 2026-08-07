@@ -147,6 +147,12 @@ def crear_respaldo() -> Path:
     if grub_default.is_file() and os.access(grub_default, os.R_OK):
         shutil.copy2(grub_default, destino / "grub.default")
     for ruta, nombre in (
+        (Path("/usr/share/gnome-shell/theme/Yaru/gnome-shell.css"), "gdm-shell-yaru.css"),
+        (Path("/usr/share/gnome-shell/theme/Yaru-dark/gnome-shell.css"), "gdm-shell-yaru-dark.css"),
+    ):
+        if ruta.is_file() and os.access(ruta, os.R_OK):
+            shutil.copy2(ruta, destino / nombre)
+    for ruta, nombre in (
         (Path("/etc/dconf/profile/gdm"), "gdm.profile"),
         (Path("/etc/dconf/db/gdm.d/01-ubuntu-customizer"), "gdm.keyfile"),
         (Path("/usr/share/backgrounds/ubuntu-customizer/tokyonight-storm.svg"), "gdm.background.svg"),
@@ -213,6 +219,13 @@ def restaurar_respaldo() -> None:
     if grub_backup.exists() and shutil.which("update-grub"):
         ejecutar_comando(["sudo", "install", "-m", "0644", str(grub_backup), "/etc/default/grub"])
         ejecutar_comando(["sudo", "update-grub"])
+    for nombre, ruta in (
+        ("gdm-shell-yaru.css", "/usr/share/gnome-shell/theme/Yaru/gnome-shell.css"),
+        ("gdm-shell-yaru-dark.css", "/usr/share/gnome-shell/theme/Yaru-dark/gnome-shell.css"),
+    ):
+        archivo = origen / nombre
+        if archivo.exists():
+            ejecutar_comando(["sudo", "install", "-m", "0644", str(archivo), ruta])
     for nombre, ruta in (
         ("gdm.profile", "/etc/dconf/profile/gdm"),
         ("gdm.keyfile", "/etc/dconf/db/gdm.d/01-ubuntu-customizer"),
@@ -1433,6 +1446,30 @@ def _ruta_tema_instalado(nombre: str) -> Path | None:
     return None
 
 
+def limpiar_temas_tokyonight(*, dry_run: bool = False) -> None:
+    """Elimina variantes TokyoNight antiguas del usuario antes de reinstalar la original."""
+    bases = (Path.home() / ".themes", Path.home() / ".local/share/themes")
+    candidatos = []
+    for base in bases:
+        if not base.is_dir():
+            continue
+        for ruta in base.iterdir():
+            nombre_normalizado = ruta.name.lower().replace("-", "").replace("_", "")
+            if ruta.is_dir() and "tokyonight" in nombre_normalizado:
+                candidatos.append(ruta)
+    if not candidatos:
+        return
+    print("\nLimpiando variantes TokyoNight anteriores")
+    for ruta in sorted(candidatos):
+        print(f"  - {ruta}")
+        if dry_run:
+            continue
+        if ruta.is_symlink():
+            ruta.unlink()
+        else:
+            shutil.rmtree(ruta)
+
+
 def copiar_gtk4(*, dry_run: bool = False) -> None:
     """Copia los archivos GTK4 del tema a ~/.config/gtk-4.0."""
     destino = Path.home() / ".config/gtk-4.0"
@@ -1924,6 +1961,55 @@ color-scheme='prefer-dark'
 gtk-theme='{gtk_theme}'
 accent-color='blue'
 """
+GDM_SHELL_MARKER = "/* ubuntu-customizer: TokyoNight GDM shell */"
+GDM_SHELL_CSS = f"""
+{GDM_SHELL_MARKER}
+#panel,
+#panelActivities,
+.login-dialog,
+.unlock-dialog,
+.login-dialog-prompt-layout,
+.modal-dialog,
+#lockDialogGroup,
+#lockDialogGroup .background {{
+    background-color: rgba(26, 27, 38, 0.78) !important;
+    background-image: none !important;
+    border: none !important;
+    box-shadow: none !important;
+}}
+
+.login-dialog .modal-dialog,
+.unlock-dialog .modal-dialog,
+.login-dialog-prompt-entry,
+.unlock-dialog-clock {{
+    border: none !important;
+    box-shadow: none !important;
+}}
+"""
+
+
+def configurar_css_shell_gdm(*, dry_run: bool = False, sudo_password: str | None = None) -> None:
+    """Aplica transparencia y elimina outlines en paneles de GDM y bloqueo."""
+    rutas = (
+        Path("/usr/share/gnome-shell/theme/Yaru/gnome-shell.css"),
+        Path("/usr/share/gnome-shell/theme/Yaru-dark/gnome-shell.css"),
+    )
+    if dry_run:
+        print("  - aplicaría panel transparente y sin outline en GDM y bloqueo")
+        return
+    for ruta in rutas:
+        if not ruta.is_file() or not os.access(ruta, os.R_OK):
+            continue
+        contenido = ruta.read_text(encoding="utf-8")
+        if GDM_SHELL_MARKER in contenido:
+            contenido = contenido.split(GDM_SHELL_MARKER, 1)[0].rstrip() + "\n"
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", prefix="ubuntu-customizer-gdm-shell-", delete=False) as temporal:
+            temporal.write(contenido + GDM_SHELL_CSS)
+            archivo = Path(temporal.name)
+        try:
+            ejecutar_comando(["sudo", "install", "-m", "0644", str(archivo), str(ruta)], sudo_password=sudo_password)
+        finally:
+            archivo.unlink(missing_ok=True)
 
 
 def instalar_tema_gdm(tema: str, *, dry_run: bool = False, sudo_password: str | None = None) -> None:
@@ -1954,6 +2040,7 @@ def configurar_gdm(
         print(f"  - instalaría el logo TokyoNight en {GDM_LOGO_PATH}")
         print("  - instalaría un wallpaper de la colección TokyoNight como fondo")
         print("  - aplicaría colores oscuros TokyoNight Storm al greeter")
+        configurar_css_shell_gdm(dry_run=True)
         print("  - ejecutaría dconf update")
         _notificar(progreso, "Login GDM3 TokyoNight", True)
         return
@@ -1976,6 +2063,7 @@ def configurar_gdm(
             encoding="utf-8",
         )
         instalar_tema_gdm(tema, sudo_password=sudo_password)
+        configurar_css_shell_gdm(sudo_password=sudo_password)
         ejecutar_comando(
             ["sudo", "install", "-d", "/etc/dconf/profile", "/etc/dconf/db/gdm.d", "/usr/share/backgrounds/ubuntu-customizer"],
             sudo_password=sudo_password,
@@ -2109,6 +2197,7 @@ def instalar_tokyonight_storm(
     if not dry_run and not (instalador / "install.sh").is_file():
         raise RuntimeError(f"No se encontró el instalador en {instalador / 'install.sh'}")
     if dry_run:
+        limpiar_temas_tokyonight(dry_run=True)
         ejecutar_comando(comando_limpieza_temas, dry_run=True)
         ejecutar_comando(comando_instalacion, dry_run=True)
         print("\nSe conservará únicamente la variante TokyoNight Storm original.")
@@ -2124,6 +2213,7 @@ def instalar_tokyonight_storm(
     comprobar_comando("git")
     comprobar_comando("gnome-shell")
     comprobar_comando("gnome-tweaks")
+    limpiar_temas_tokyonight()
     resultado_limpieza = subprocess.run(
         comando_limpieza_temas,
         cwd=instalador,
