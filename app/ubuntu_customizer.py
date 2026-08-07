@@ -23,6 +23,7 @@ import struct
 from collections import deque
 from collections.abc import Callable
 from pathlib import Path
+from xml.sax.saxutils import escape as xml_escape
 from urllib.parse import urljoin
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -1558,7 +1559,7 @@ def instalar_wallpapers_tokyonight(
     destino = Path.home() / ".local/share/backgrounds/TokyoNight"
     if dry_run:
         print(f"\nSe descargarían wallpapers TokyoNight en {destino}")
-        print("Se configuraría un wallpaper dinámico para el escritorio y la pantalla de bloqueo.")
+        print("Se conservaría toda la colección y se configuraría una rotación dinámica para el escritorio y la pantalla de bloqueo.")
         _notificar(progreso, "Wallpapers TokyoNight", True)
         return
 
@@ -1571,29 +1572,38 @@ def instalar_wallpapers_tokyonight(
     if not imagenes:
         raise RuntimeError(f"No se encontraron imágenes en {destino}")
 
-    imagenes_tokyonight = [
-        imagen for imagen in imagenes
-        if "tokyo" in imagen.stem.lower() or "night" in imagen.stem.lower()
-    ] or imagenes
-    imagen_tokyonight = secrets.choice(imagenes_tokyonight)
-    uri = imagen_tokyonight.as_uri()
+    # El repositorio ya contiene la colección completa; no se descartan imágenes
+    # por nombre porque muchas no incluyen "Tokyo" o "Night" en el archivo.
+    imagenes_tokyonight = imagenes
+    imagen_tokyonight = imagenes_tokyonight[0]
+    dinamico = destino / "tokyonight-dynamic.xml"
     if len(imagenes_tokyonight) >= 2:
-        dinamico = destino / "tokyonight-dynamic.xml"
-        primera, segunda = imagenes_tokyonight[:2]
+        entradas = []
+        for imagen in imagenes_tokyonight:
+            entradas.append(
+                "  <static><duration>1800.0</duration><file>{}</file></static>".format(
+                    xml_escape(str(imagen))
+                )
+            )
         dinamico.write_text(
             """<background>
   <starttime>
     <year>2024</year><month>1</month><day>1</day>
     <hour>6</hour><minute>0</minute><second>0</second>
   </starttime>
-  <static><duration>21600.0</duration><file>{}</file></static>
-  <static><duration>21600.0</duration><file>{}</file></static>
+{}
 </background>
-""".format(primera, segunda),
+""".format("\n".join(entradas)),
             encoding="utf-8",
         )
         uri = dinamico.as_uri()
-        print(f"Wallpaper dinámico creado: {dinamico.name}")
+        print(f"Wallpaper dinámico creado con {len(imagenes_tokyonight)} imágenes: {dinamico.name}")
+    else:
+        uri = imagen_tokyonight.as_uri()
+    (destino / "wallpapers-manifest.txt").write_text(
+        "\n".join(str(imagen.relative_to(destino)) for imagen in imagenes_tokyonight) + "\n",
+        encoding="utf-8",
+    )
     for clave in ("picture-uri", "picture-uri-dark"):
         _ejecutar_opcional(
             ["gsettings", "set", "org.gnome.desktop.background", clave, f"'{uri}'"],
@@ -1892,6 +1902,14 @@ def instalar_tokyonight_storm(
         "storm",
         "macos",
         "float",
+        "-t",
+        "all",
+        "-c",
+        "light",
+        "dark",
+        "-s",
+        "standard",
+        "compact",
         "-l",
     ]
     instalador = destino / "themes"
@@ -1899,7 +1917,7 @@ def instalar_tokyonight_storm(
         raise RuntimeError(f"No se encontró el instalador en {instalador / 'install.sh'}")
     if dry_run:
         ejecutar_comando(comando_instalacion, dry_run=True)
-        print("\nSe instalaría TokyoNight GTK con la variante Storm, shell flotante y sin outline.")
+        print("\nSe instalarían todas las variantes de color TokyoNight Storm, en tamaños estándar y compacto.")
         configurar_grub(dry_run=True, progreso=progreso)
         configurar_gdm(dry_run=True, progreso=progreso)
         configurar_fuentes_y_escalado(dry_run=True, progreso=progreso)
