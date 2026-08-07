@@ -1297,6 +1297,7 @@ def instalar_cursor_material(
             detalle = resultado_clon.stderr.strip() or resultado_clon.stdout.strip()
             raise RuntimeError(f"No se pudo clonar Material Cursors: {detalle}")
     adaptar_makefile_material_cursor()
+    limpiar_css_svg_material_cursor()
     print("Construyendo cursores Material; este paso puede tardar unos minutos...")
     try:
         resultado = subprocess.run(
@@ -1347,6 +1348,36 @@ def adaptar_makefile_material_cursor() -> None:
     except OSError as error:
         raise RuntimeError(f"No se pudo actualizar el Makefile para Inkscape: {error}") from error
     print(f"Ajustadas {cambios} reglas antiguas de Inkscape en el Makefile de Material Cursors.")
+
+
+def limpiar_css_svg_material_cursor() -> None:
+    """Elimina propiedades CSS no válidas para el parser SVG de Inkscape.
+
+    Algunas fuentes del tema incluyen ``border-spacing`` dentro de estilos
+    SVG. Es una propiedad de tablas HTML, no de SVG, y las versiones actuales
+    de Inkscape pueden detener la conversión por ese error de parsing.
+    """
+    archivos_svg = list(MATERIAL_CURSOR_DIR.rglob("*.svg"))
+    corregidos = 0
+    patron = re.compile(
+        r"(?P<prefijo>^|[;{])\s*border-spacing\s*:[^;}]*(?:;|(?=}))",
+        re.IGNORECASE,
+    )
+    for archivo_svg in archivos_svg:
+        try:
+            contenido = archivo_svg.read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            continue
+        limpio = patron.sub(r"\g<prefijo>", contenido)
+        if limpio == contenido:
+            continue
+        try:
+            archivo_svg.write_text(limpio, encoding="utf-8")
+        except OSError as error:
+            raise RuntimeError(f"No se pudo corregir el SVG {archivo_svg}: {error}") from error
+        corregidos += 1
+    if corregidos:
+        print(f"Eliminada la propiedad CSS no válida de Inkscape en {corregidos} SVG.")
 
 
 def configurar_bloqueo_cursor_energia(
