@@ -1796,6 +1796,7 @@ def instalar_wallpapers_tokyonight(
     if dry_run:
         print(f"\nSe descargarían wallpapers TokyoNight en {destino}")
         print("Se conservaría toda la colección y se configuraría una rotación dinámica para el escritorio y la pantalla de bloqueo.")
+        print("Se registrarían todos los wallpapers en el selector de fondos de GNOME.")
         _notificar(progreso, "Wallpapers TokyoNight", True)
         return
 
@@ -1811,6 +1812,7 @@ def instalar_wallpapers_tokyonight(
     # El repositorio ya contiene la colección completa; no se descartan imágenes
     # por nombre porque muchas no incluyen "Tokyo" o "Night" en el archivo.
     imagenes_tokyonight = imagenes
+    registrar_wallpapers_en_selector(imagenes_tokyonight)
     imagen_tokyonight = imagenes_tokyonight[0]
     dinamico = destino / "tokyonight-dynamic.xml"
     if len(imagenes_tokyonight) >= 2:
@@ -1887,6 +1889,39 @@ def seleccionar_wallpaper_compatible() -> Path:
     if not imagenes:
         raise RuntimeError(f"No se encontró un wallpaper compatible en {destino}")
     return imagenes[0]
+
+
+def registrar_wallpapers_en_selector(imagenes: list[Path], *, dry_run: bool = False) -> Path:
+    """Añade toda la colección al selector de fondos de GNOME."""
+    destino = Path.home() / "Pictures/Ubuntu Customizer/TokyoNight"
+    catalogo_dir = Path.home() / ".local/share/gnome-background-properties"
+    catalogo = catalogo_dir / "ubuntu-customizer-tokyonight.xml"
+    if dry_run:
+        print(f"  - registraría {len(imagenes)} wallpapers en {catalogo}")
+        print(f"  - copiaría las imágenes a {destino}")
+        return catalogo
+    destino.mkdir(parents=True, exist_ok=True)
+    entradas = []
+    for indice, imagen in enumerate(imagenes, start=1):
+        nombre = f"{indice:03d}-{imagen.name}"
+        copia = destino / nombre
+        shutil.copy2(imagen, copia)
+        nombre_visible = imagen.stem.replace("_", " ").replace("-", " ").strip().title()
+        entradas.append(
+            "  <wallpaper deleted=\"false\">\n"
+            f"    <name>{xml_escape(nombre_visible or f'TokyoNight {indice:03d}')}</name>\n"
+            f"    <filename>{xml_escape(str(copia))}</filename>\n"
+            "    <pcolor>#1a1b26</pcolor><scolor>#16161e</scolor>\n"
+            "    <options>zoom</options>\n"
+            "  </wallpaper>"
+        )
+    catalogo_dir.mkdir(parents=True, exist_ok=True)
+    catalogo.write_text(
+        "<background>\n" + "\n".join(entradas) + "\n</background>\n",
+        encoding="utf-8",
+    )
+    print(f"Wallpapers registrados en el selector de GNOME: {len(imagenes)}")
+    return catalogo
 
 
 def configurar_grub(
