@@ -1681,19 +1681,23 @@ def instalar_extensiones_productividad(*, dry_run: bool = False, progreso: Progr
     _notificar(progreso, "Extensiones de productividad", True)
 
 
+DOCK_FAVORITES = (
+    "org.gnome.Ptyxis.desktop",
+    "code_code.desktop",
+    "org.gnome.Nautilus.desktop",
+    "firefox-nightly.desktop",
+    "firefox_firefox.desktop",
+)
+
+
 def configurar_ubuntu_dock(*, dry_run: bool = False, progreso: Progreso | None = None) -> None:
-    """Configura el Dock sin cambiar las aplicaciones fijadas actualmente."""
+    """Replica la configuración y las aplicaciones ancladas del Ubuntu Dock de referencia."""
     _notificar(progreso, "Ubuntu Dock")
-    favoritos_actuales: str | None = None
-    if not dry_run:
-        resultado_favoritos = subprocess.run(
-            ["gsettings", "get", "org.gnome.shell", "favorite-apps"],
-            capture_output=True,
-            text=True,
-        )
-        if resultado_favoritos.returncode == 0:
-            favoritos_actuales = resultado_favoritos.stdout.strip()
     ajustes = (
+        ("activate-single-window", "true"),
+        ("always-center-icons", "false"),
+        ("animation-time", "0.2"),
+        ("apply-glossy-effect", "true"),
         ("dock-position", "'BOTTOM'"),
         ("dock-fixed", "false"),
         ("autohide", "true"),
@@ -1703,11 +1707,27 @@ def configurar_ubuntu_dock(*, dry_run: bool = False, progreso: Progreso | None =
         ("dash-max-icon-size", "34"),
         ("icon-size-fixed", "false"),
         ("extend-height", "false"),
+        ("height-fraction", "0.9"),
+        ("hide-delay", "0.2"),
+        ("hide-tooltip", "false"),
+        ("hot-keys", "true"),
+        ("hotkeys-overlay", "true"),
+        ("hotkeys-show-dock", "true"),
+        ("isolate-locations", "true"),
+        ("isolate-monitors", "true"),
+        ("isolate-workspaces", "true"),
+        ("max-alpha", "0.8"),
+        ("min-alpha", "0.2"),
         ("transparency-mode", "'FIXED'"),
         ("background-opacity", "0.0"),
         ("show-favorites", "true"),
+        ("show-apps-at-top", "true"),
         ("show-show-apps-button", "true"),
+        ("show-icons-emblems", "false"),
         ("show-icons-notifications-counter", "true"),
+        ("show-mounts", "false"),
+        ("show-mounts-network", "true"),
+        ("show-trash", "true"),
         ("show-windows-preview", "true"),
         ("click-action", "'focus-or-appspread'"),
         ("scroll-action", "'switch-workspace'"),
@@ -1717,11 +1737,11 @@ def configurar_ubuntu_dock(*, dry_run: bool = False, progreso: Progreso | None =
             ["gsettings", "set", ESQUEMA_DOCK, clave, valor],
             dry_run=dry_run,
         )
-    if favoritos_actuales:
-        _ejecutar_opcional(
-            ["gsettings", "set", "org.gnome.shell", "favorite-apps", favoritos_actuales],
-            dry_run=dry_run,
-        )
+    favoritos = "[" + ", ".join(f"'{aplicacion}'" for aplicacion in DOCK_FAVORITES) + "]"
+    _ejecutar_opcional(
+        ["gsettings", "set", "org.gnome.shell", "favorite-apps", favoritos],
+        dry_run=dry_run,
+    )
     print("\nConfiguración de Ubuntu Dock aplicada")
     _notificar(progreso, "Ubuntu Dock", True)
 
