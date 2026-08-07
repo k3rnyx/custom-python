@@ -109,7 +109,6 @@ PROGRESS_TASKS=(
     "Preparando entorno Python"
     "Dependencias del sistema"
     "Zsh, Oh My Zsh y fuente Nerd"
-    "Iconos Deepin SEA"
     "Extensiones de productividad"
     "Ubuntu Dock"
     "Wallpapers TokyoNight"
@@ -121,6 +120,8 @@ PROGRESS_TASKS=(
     "Fuentes y escalado"
     "Atajos de teclado"
     "Sonido del perfil"
+    "Bloqueo, cursor y energía"
+    "Plymouth y validaciones"
 )
 BRAILLE_SPINNER=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
 SPINNER_INDEX=0

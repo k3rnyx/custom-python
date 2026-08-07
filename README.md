@@ -46,6 +46,8 @@ También personaliza el login GDM3 mediante un banner `Ubuntu Customizer · Toky
 
 Además descarga y conserva toda la colección de wallpapers TokyoNight en `~/.local/share/backgrounds/TokyoNight`, genera un manifiesto y configura una rotación dinámica de todas las imágenes para el escritorio y la pantalla de bloqueo. También configura fuentes GNOME con JetBrains Mono para texto monoespaciado, escalado 1.0 y atajos `Ctrl+Alt+T` para la terminal y `Super+E` para Archivos. Los atajos existentes se conservan.
 
+También añade logo TokyoNight al login, cursor Bibata azul, bloqueo de pantalla, animaciones, ahorro de energía y un tema Plymouth TokyoNight con regeneración de initramfs. No modifica el tema de iconos del sistema.
+
 El sonido también se adapta al perfil con temas propios generados localmente en `~/.local/share/sounds/`: WanTher usa `UbuntuCustomizer-WanTher` con tonos cálidos y K3rNyx usa `UbuntuCustomizer-K3rNyx` con tonos graves y discretos. Ambos heredan eventos no personalizados de `freedesktop`.
 
 Cada perfil instala únicamente sus dependencias específicas. WanTher instala pnpm y Angular CLI mediante npm, mientras que K3rNyx intenta incluir herramientas adicionales como Aircrack-ng, SQLMap, Hydra, John, Nikto y Proxychains4; las que no estén disponibles en los repositorios se omiten como opcionales. UFW no se activa automáticamente para no cortar conexiones existentes.

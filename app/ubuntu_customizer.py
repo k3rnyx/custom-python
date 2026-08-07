@@ -20,6 +20,7 @@ import threading
 import time
 import wave
 import struct
+import xml.etree.ElementTree as ET
 from collections import deque
 from collections.abc import Callable
 from pathlib import Path
@@ -153,6 +154,7 @@ def crear_respaldo() -> Path:
         (Path("/usr/share/backgrounds/ubuntu-customizer/tokyonight-login.jpg"), "gdm.background.jpg"),
         (Path("/usr/share/backgrounds/ubuntu-customizer/tokyonight-login.jpeg"), "gdm.background.jpeg"),
         (Path("/usr/share/backgrounds/ubuntu-customizer/tokyonight-login.tga"), "gdm.background.tga"),
+        (Path("/usr/share/pixmaps/ubuntu-customizer-tokyonight.svg"), "gdm.logo.svg"),
     ):
         if ruta.is_file() and os.access(ruta, os.R_OK):
             shutil.copy2(ruta, destino / nombre)
@@ -160,6 +162,8 @@ def crear_respaldo() -> Path:
             (destino / f"{nombre}.absent").write_text("absent\n", encoding="utf-8")
     for ruta, nombre in (
         ("/org/gnome/desktop/interface/", "desktop-interface.dconf"),
+        ("/org/gnome/desktop/screensaver/", "desktop-screensaver.dconf"),
+        ("/org/gnome/settings-daemon/plugins/power/", "power.dconf"),
         ("/org/gnome/shell/extensions/dash-to-dock/", "dash-to-dock.dconf"),
         ("/org/gnome/terminal/legacy/", "gnome-terminal.dconf"),
         ("/org/gnome/settings-daemon/plugins/media-keys/", "media-keys.dconf"),
@@ -194,6 +198,8 @@ def restaurar_respaldo() -> None:
             shutil.copy2(archivo, Path.home() / nombre)
     esquemas = (
         ("desktop-interface.dconf", "/org/gnome/desktop/interface/"),
+        ("desktop-screensaver.dconf", "/org/gnome/desktop/screensaver/"),
+        ("power.dconf", "/org/gnome/settings-daemon/plugins/power/"),
         ("dash-to-dock.dconf", "/org/gnome/shell/extensions/dash-to-dock/"),
         ("gnome-terminal.dconf", "/org/gnome/terminal/legacy/"),
         ("media-keys.dconf", "/org/gnome/settings-daemon/plugins/media-keys/"),
@@ -215,6 +221,7 @@ def restaurar_respaldo() -> None:
         ("gdm.background.jpg", "/usr/share/backgrounds/ubuntu-customizer/tokyonight-login.jpg"),
         ("gdm.background.jpeg", "/usr/share/backgrounds/ubuntu-customizer/tokyonight-login.jpeg"),
         ("gdm.background.tga", "/usr/share/backgrounds/ubuntu-customizer/tokyonight-login.tga"),
+        ("gdm.logo.svg", "/usr/share/pixmaps/ubuntu-customizer-tokyonight.svg"),
     ):
         archivo = origen / nombre
         ausente = origen / f"{nombre}.absent"
@@ -227,6 +234,7 @@ def restaurar_respaldo() -> None:
         for nombre in (
             "gdm.profile", "gdm.keyfile", "gdm.background.svg", "gdm.background.png",
             "gdm.background.jpg", "gdm.background.jpeg", "gdm.background.tga",
+            "gdm.logo.svg",
         )
     ):
         ejecutar_comando(["sudo", "dconf", "update"])
@@ -527,7 +535,6 @@ def _dibujar_proceso(stdscr: curses.window, estado: _EstadoProceso, frame: int) 
     tareas = (
         "Dependencias del sistema",
         "Zsh, Oh My Zsh y fuente Nerd",
-        "Iconos Deepin SEA",
         "Extensiones de productividad",
         "Ubuntu Dock",
         "Tema TokyoNight",
@@ -538,6 +545,8 @@ def _dibujar_proceso(stdscr: curses.window, estado: _EstadoProceso, frame: int) 
         "Fuentes y escalado",
         "Atajos de teclado",
         "Sonido del perfil",
+        "Bloqueo, cursor y energía",
+        "Plymouth y validaciones",
     )
     alto_contenido = 22
     base = max(0, (alto - alto_contenido) // 2)
@@ -1239,6 +1248,106 @@ def configurar_sonido(
     _notificar(progreso, "Sonido del perfil", True)
 
 
+def configurar_bloqueo_cursor_energia(
+    *, dry_run: bool = False, progreso: Progreso | None = None
+) -> None:
+    """Configura bloqueo, cursor, animaciones y consumo sin tocar iconos."""
+    _notificar(progreso, "Bloqueo, cursor y energía")
+    ajustes = (
+        ("org.gnome.desktop.screensaver", "lock-enabled", "true"),
+        ("org.gnome.desktop.screensaver", "lock-delay", "uint32 0"),
+        ("org.gnome.desktop.interface", "enable-animations", "true"),
+        ("org.gnome.desktop.interface", "cursor-theme", "'Bibata-Modern-Ice'"),
+        ("org.gnome.desktop.interface", "cursor-size", "24"),
+        ("org.gnome.desktop.session", "idle-delay", "uint32 900"),
+        ("org.gnome.settings-daemon.plugins.power", "idle-dim", "true"),
+        ("org.gnome.settings-daemon.plugins.power", "sleep-inactive-ac-timeout", "1800"),
+        ("org.gnome.settings-daemon.plugins.power", "sleep-inactive-battery-timeout", "900"),
+        ("org.gnome.settings-daemon.plugins.power", "power-button-action", "'interactive'"),
+    )
+    for esquema, clave, valor in ajustes:
+        _ejecutar_opcional(["gsettings", "set", esquema, clave, valor], dry_run=dry_run)
+    print("Bloqueo, animaciones, cursor Bibata y ahorro de energía configurados")
+    _notificar(progreso, "Bloqueo, cursor y energía", True)
+
+
+PLYMOUTH_THEME_DIR = "/usr/share/plymouth/themes/ubuntu-customizer"
+PLYMOUTH_THEME = """[Plymouth Theme]
+Name=Ubuntu Customizer TokyoNight
+Description=Arranque TokyoNight Storm
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/ubuntu-customizer
+ScriptFile=/usr/share/plymouth/themes/ubuntu-customizer/ubuntu-customizer.script
+"""
+PLYMOUTH_SCRIPT = """Window.SetBackgroundTopColor (0.102, 0.106, 0.149);
+Window.SetBackgroundBottomColor (0.086, 0.086, 0.118);
+"""
+
+
+def configurar_plymouth(
+    *, dry_run: bool = False, progreso: Progreso | None = None, sudo_password: str | None = None
+) -> None:
+    """Instala un tema Plymouth minimalista TokyoNight y regenera initramfs."""
+    _notificar(progreso, "Plymouth y validaciones")
+    print("\nConfigurando Plymouth TokyoNight Storm")
+    if dry_run:
+        print(f"  - instalaría el tema en {PLYMOUTH_THEME_DIR}")
+        print("  - ejecutaría plymouth-set-default-theme -R ubuntu-customizer")
+        _notificar(progreso, "Plymouth y validaciones", True)
+        return
+    if shutil.which("plymouth-set-default-theme") is None:
+        print("Aviso: Plymouth no está disponible; se omite su personalización.")
+        _notificar(progreso, "Plymouth y validaciones", True)
+        return
+    with tempfile.TemporaryDirectory(prefix="ubuntu-customizer-plymouth-") as temporal:
+        tema = Path(temporal) / "ubuntu-customizer.plymouth"
+        script = Path(temporal) / "ubuntu-customizer.script"
+        tema.write_text(PLYMOUTH_THEME, encoding="utf-8")
+        script.write_text(PLYMOUTH_SCRIPT, encoding="utf-8")
+        ejecutar_comando(["sudo", "install", "-d", PLYMOUTH_THEME_DIR], sudo_password=sudo_password)
+        ejecutar_comando(
+            ["sudo", "install", "-m", "0644", str(tema), f"{PLYMOUTH_THEME_DIR}/ubuntu-customizer.plymouth"],
+            sudo_password=sudo_password,
+        )
+        ejecutar_comando(
+            ["sudo", "install", "-m", "0644", str(script), f"{PLYMOUTH_THEME_DIR}/ubuntu-customizer.script"],
+            sudo_password=sudo_password,
+        )
+        ejecutar_comando(
+            ["sudo", "plymouth-set-default-theme", "-R", "ubuntu-customizer"],
+            sudo_password=sudo_password,
+        )
+    _notificar(progreso, "Plymouth y validaciones", True)
+
+
+def validar_personalizacion(*, dry_run: bool = False, progreso: Progreso | None = None) -> None:
+    """Comprueba que los recursos principales existan y que el XML sea válido."""
+    _notificar(progreso, "Plymouth y validaciones")
+    if dry_run:
+        print("Se validarían temas, wallpapers, XML dinámico y comandos de GNOME.")
+        _notificar(progreso, "Plymouth y validaciones", True)
+        return
+    comprobaciones = {
+        "gsettings": shutil.which("gsettings") is not None,
+        "dconf": shutil.which("dconf") is not None,
+        "wallpaper TokyoNight": bool(list((Path.home() / ".local/share/backgrounds/TokyoNight").glob("*"))),
+    }
+    dinamico = Path.home() / ".local/share/backgrounds/TokyoNight/tokyonight-dynamic.xml"
+    if dinamico.is_file():
+        try:
+            ET.parse(dinamico)
+            comprobaciones["XML dinámico"] = True
+        except ET.ParseError:
+            comprobaciones["XML dinámico"] = False
+    for nombre, correcto in comprobaciones.items():
+        if not correcto:
+            print(f"Aviso: validación pendiente o fallida: {nombre}")
+    print("Validación de personalización completada")
+    _notificar(progreso, "Plymouth y validaciones", True)
+
+
 def configurar_atajos(*, dry_run: bool = False, progreso: Progreso | None = None) -> None:
     """Añade atajos útiles sin reemplazar los atajos personalizados existentes."""
     _notificar(progreso, "Atajos de teclado")
@@ -1346,20 +1455,26 @@ def copiar_gtk4(*, dry_run: bool = False) -> None:
     destino.mkdir(parents=True, exist_ok=True)
     assets = gtk4 / "assets"
     destino_assets = destino / "assets"
-    if assets.is_dir() and not (
-        destino_assets.is_symlink() and destino_assets.resolve() == assets.resolve()
-    ):
+    if assets.is_dir():
         if destino_assets.is_symlink():
+            if destino_assets.resolve() == assets.resolve():
+                destino_assets = None
+            else:
+                destino_assets.unlink()
+        elif destino_assets.exists() and not destino_assets.is_dir():
             destino_assets.unlink()
-        shutil.copytree(assets, destino_assets, dirs_exist_ok=True, symlinks=True)
+        if destino_assets is not None:
+            shutil.copytree(assets, destino_assets, dirs_exist_ok=True, symlinks=True)
     for archivo in archivos:
         origen_archivo = gtk4 / archivo
         if origen_archivo.is_file():
             destino_archivo = destino / archivo
-            if destino_archivo.is_symlink() and destino_archivo.resolve() == origen_archivo.resolve():
-                continue
             if destino_archivo.is_symlink():
+                if destino_archivo.resolve() == origen_archivo.resolve():
+                    continue
                 destino_archivo.unlink()
+            elif destino_archivo.exists() and destino_archivo.is_dir():
+                shutil.rmtree(destino_archivo)
             shutil.copy2(origen_archivo, destino_archivo)
 
 
@@ -1744,6 +1859,13 @@ GDM_PROFILE = """user-db:user
 system-db:gdm
 file-db:/usr/share/gdm/greeter-dconf-defaults
 """
+GDM_LOGO_PATH = "/usr/share/pixmaps/ubuntu-customizer-tokyonight.svg"
+GDM_LOGO = """<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+<rect width="256" height="256" rx="56" fill="#1a1b26"/>
+<circle cx="128" cy="128" r="82" fill="#24283b" stroke="#7dcfff" stroke-width="8"/>
+<path d="M78 150c18 20 38 30 60 30s42-10 60-30M92 108h2M162 108h2" fill="none" stroke="#bb9af7" stroke-width="12" stroke-linecap="round"/>
+</svg>
+"""
 GDM_BACKGROUND = """<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080">
 <defs>
   <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
@@ -1766,6 +1888,7 @@ GDM_BACKGROUND = """<svg xmlns="http://www.w3.org/2000/svg" width="1920" height=
 GDM_KEYFILE_TEMPLATE = """[org/gnome/login-screen]
 banner-message-enable=true
 banner-message-text='Ubuntu Customizer · TokyoNight Storm'
+logo='/usr/share/pixmaps/ubuntu-customizer-tokyonight.svg'
 
 [org/gnome/desktop/background]
 picture-uri='file://{background_path}'
@@ -1806,6 +1929,7 @@ def configurar_gdm(
         instalar_tema_gdm(tema, dry_run=True)
         print("  - instalaría /etc/dconf/profile/gdm")
         print("  - instalaría /etc/dconf/db/gdm.d/01-ubuntu-customizer")
+        print(f"  - instalaría el logo TokyoNight en {GDM_LOGO_PATH}")
         print("  - instalaría un wallpaper de la colección TokyoNight como fondo")
         print("  - aplicaría colores oscuros TokyoNight Storm al greeter")
         print("  - ejecutaría dconf update")
@@ -1819,6 +1943,8 @@ def configurar_gdm(
         wallpaper = seleccionar_wallpaper_compatible()
         nombre_wallpaper = f"tokyonight-login{wallpaper.suffix.lower()}"
         ruta_wallpaper = Path("/usr/share/backgrounds/ubuntu-customizer") / nombre_wallpaper
+        logo = Path(temporal) / "ubuntu-customizer-tokyonight.svg"
+        logo.write_text(GDM_LOGO, encoding="utf-8")
         perfil.write_text(GDM_PROFILE, encoding="utf-8")
         keyfile.write_text(
             GDM_KEYFILE_TEMPLATE.format(
@@ -1842,6 +1968,11 @@ def configurar_gdm(
         )
         ejecutar_comando(
             ["sudo", "install", "-m", "0644", str(wallpaper), str(ruta_wallpaper)],
+            sudo_password=sudo_password,
+        )
+        ejecutar_comando(["sudo", "install", "-d", "/usr/share/pixmaps"], sudo_password=sudo_password)
+        ejecutar_comando(
+            ["sudo", "install", "-m", "0644", str(logo), GDM_LOGO_PATH],
             sudo_password=sudo_password,
         )
         ejecutar_comando(["sudo", "dconf", "update"], sudo_password=sudo_password)
@@ -1892,8 +2023,8 @@ def instalar_tokyonight_storm(
         "neovim",
         "shellcheck",
         "shfmt",
-        "deepin-icon-theme",
-        "papirus-icon-theme",
+        "bibata-cursor-theme",
+        "plymouth-themes",
         "libglib2.0-bin",
         *PERFILES[perfil]["paquetes"],
     ]
@@ -1925,11 +2056,6 @@ def instalar_tokyonight_storm(
         configurar_wanther(dry_run=dry_run)
     else:
         configurar_k3rnyx(dry_run=dry_run)
-    reducir_iconos_sea(
-        dry_run=dry_run,
-        progreso=progreso,
-        sudo_password=sudo_password,
-    )
     instalar_extensiones_productividad(dry_run=dry_run, progreso=progreso)
     configurar_ubuntu_dock(dry_run=dry_run, progreso=progreso)
     instalar_wallpapers_tokyonight(dry_run=dry_run, progreso=progreso)
@@ -1963,6 +2089,9 @@ def instalar_tokyonight_storm(
         configurar_fuentes_y_escalado(dry_run=True, progreso=progreso)
         configurar_atajos(dry_run=True, progreso=progreso)
         configurar_sonido(perfil, dry_run=True, progreso=progreso)
+        configurar_bloqueo_cursor_energia(dry_run=True, progreso=progreso)
+        configurar_plymouth(dry_run=True, progreso=progreso)
+        validar_personalizacion(dry_run=True, progreso=progreso)
         return
     comprobar_comando("git")
     comprobar_comando("gnome-shell")
@@ -1985,6 +2114,9 @@ def instalar_tokyonight_storm(
     configurar_fuentes_y_escalado(progreso=progreso)
     configurar_atajos(progreso=progreso)
     configurar_sonido(perfil, progreso=progreso)
+    configurar_bloqueo_cursor_energia(progreso=progreso)
+    configurar_plymouth(progreso=progreso, sudo_password=sudo_password)
+    validar_personalizacion(progreso=progreso)
 
 
 def aplicar_tokyonight_storm(*, dry_run: bool = False, progreso: Progreso | None = None) -> None:
@@ -2016,8 +2148,6 @@ def aplicar_tokyonight_storm(*, dry_run: bool = False, progreso: Progreso | None
     _notificar(progreso, "Shell flotante y transparencia")
     aplicar_transparencia_shell(tema, dry_run=dry_run)
     _notificar(progreso, "Shell flotante y transparencia", True)
-    aplicar_iconos_sea(dry_run=dry_run)
-    _notificar(progreso, "Iconos Deepin SEA", True)
     configurar_gnome_terminal(dry_run=dry_run, progreso=progreso)
     configurar_ubuntu_dock(dry_run=dry_run, progreso=progreso)
     print(f"\nTema aplicado: {tema} (TokyoNight Storm, botones macOS, sin outline)")
