@@ -7,6 +7,7 @@ import contextlib
 import curses
 import io
 import logging
+import math
 import os
 import json
 import re
@@ -17,6 +18,8 @@ import sys
 import tempfile
 import threading
 import time
+import wave
+import struct
 from collections import deque
 from collections.abc import Callable
 from pathlib import Path
@@ -138,10 +141,23 @@ def crear_respaldo() -> Path:
     for archivo in archivos:
         if archivo.exists():
             shutil.copy2(archivo, destino / archivo.name)
+    grub_default = Path("/etc/default/grub")
+    if grub_default.is_file() and os.access(grub_default, os.R_OK):
+        shutil.copy2(grub_default, destino / "grub.default")
+    for ruta, nombre in (
+        (Path("/etc/dconf/profile/gdm"), "gdm.profile"),
+        (Path("/etc/dconf/db/gdm.d/01-ubuntu-customizer"), "gdm.keyfile"),
+    ):
+        if ruta.is_file() and os.access(ruta, os.R_OK):
+            shutil.copy2(ruta, destino / nombre)
+        else:
+            (destino / f"{nombre}.absent").write_text("absent\n", encoding="utf-8")
     for ruta, nombre in (
         ("/org/gnome/desktop/interface/", "desktop-interface.dconf"),
         ("/org/gnome/shell/extensions/dash-to-dock/", "dash-to-dock.dconf"),
         ("/org/gnome/terminal/legacy/", "gnome-terminal.dconf"),
+        ("/org/gnome/settings-daemon/plugins/media-keys/", "media-keys.dconf"),
+        ("/org/gnome/desktop/sound/", "sound.dconf"),
     ):
         if shutil.which("dconf") is None:
             LOGGER.warning("No se pudo respaldar %s: dconf no está instalado", ruta)
@@ -174,11 +190,29 @@ def restaurar_respaldo() -> None:
         ("desktop-interface.dconf", "/org/gnome/desktop/interface/"),
         ("dash-to-dock.dconf", "/org/gnome/shell/extensions/dash-to-dock/"),
         ("gnome-terminal.dconf", "/org/gnome/terminal/legacy/"),
+        ("media-keys.dconf", "/org/gnome/settings-daemon/plugins/media-keys/"),
+        ("sound.dconf", "/org/gnome/desktop/sound/"),
     )
     for nombre, ruta in esquemas:
         archivo = origen / nombre
         if archivo.exists() and shutil.which("dconf"):
             subprocess.run(["dconf", "load", ruta], input=archivo.read_text(encoding="utf-8"), text=True, check=True)
+    grub_backup = origen / "grub.default"
+    if grub_backup.exists() and shutil.which("update-grub"):
+        ejecutar_comando(["sudo", "install", "-m", "0644", str(grub_backup), "/etc/default/grub"])
+        ejecutar_comando(["sudo", "update-grub"])
+    for nombre, ruta in (
+        ("gdm.profile", "/etc/dconf/profile/gdm"),
+        ("gdm.keyfile", "/etc/dconf/db/gdm.d/01-ubuntu-customizer"),
+    ):
+        archivo = origen / nombre
+        ausente = origen / f"{nombre}.absent"
+        if archivo.exists():
+            ejecutar_comando(["sudo", "install", "-m", "0644", str(archivo), ruta])
+        elif ausente.exists():
+            ejecutar_comando(["sudo", "rm", "-f", ruta])
+    if (origen / "gdm.profile").exists() or (origen / "gdm.keyfile").exists() or (origen / "gdm.profile.absent").exists() or (origen / "gdm.keyfile.absent").exists():
+        ejecutar_comando(["sudo", "dconf", "update"])
     print(f"Respaldo restaurado: {origen}")
     LOGGER.info("Respaldo restaurado: %s", origen)
 
@@ -482,6 +516,11 @@ def _dibujar_proceso(stdscr: curses.window, estado: _EstadoProceso, frame: int) 
         "Tema TokyoNight",
         "Shell flotante y transparencia",
         "Perfil GNOME Terminal",
+        "GRUB TokyoNight",
+        "Login GDM3 TokyoNight",
+        "Fuentes y escalado",
+        "Atajos de teclado",
+        "Sonido del perfil",
     )
     alto_contenido = 22
     base = max(0, (alto - alto_contenido) // 2)
@@ -721,6 +760,7 @@ PERFILES = {
             "python3-dev", "python3-pip", "python3-venv",
         ),
         "herramientas": "Angular CLI, pnpm/corepack, Node.js, Docker, PostgreSQL y Redis",
+        "sonido": ("UbuntuCustomizer-WanTher", True, True),
     },
     "k3rnyx": {
         "nombre": "K3rNyx — Seguridad informática",
@@ -731,6 +771,7 @@ PERFILES = {
             "hydra", "john", "nikto", "proxychains4",
         ),
         "herramientas": "Reconocimiento, captura de tráfico, auditoría web y análisis local",
+        "sonido": ("UbuntuCustomizer-K3rNyx", True, False),
     },
 }
 Progreso = Callable[[str, bool], None]
@@ -772,7 +813,9 @@ def configurar_gnome_terminal(*, dry_run: bool = False, progreso: Progreso | Non
     _notificar(progreso, "Perfil GNOME Terminal")
 
     base = "/org/gnome/terminal/legacy/profiles:/"
-    perfil = f"{base}:{TERMINAL_PROFILE_UUID}/"
+    # `base` ya termina en `:`; añadir otro producía `profiles::UUID`,
+    # una ruta dconf inválida que impedía aplicar el perfil.
+    perfil = f"{base}{TERMINAL_PROFILE_UUID}/"
     if dry_run:
         lista = ""
     else:
@@ -954,7 +997,11 @@ precmd() {
 
 
 def configurar_zsh(
-    *, dry_run: bool = False, progreso: Progreso | None = None, perfil: str = "wanther"
+    *,
+    dry_run: bool = False,
+    progreso: Progreso | None = None,
+    perfil: str = "wanther",
+    establecer_predeterminado: bool = False,
 ) -> None:
     """Instala Zsh, Oh My Zsh y plugins productivos de forma idempotente."""
     _notificar(progreso, "Zsh, Oh My Zsh y fuente Nerd")
@@ -1016,19 +1063,30 @@ def configurar_zsh(
         zshrc.write_text(contenido, encoding="utf-8")
 
     zsh_path = shutil.which("zsh")
-    if not dry_run and zsh_path and os.environ.get("SHELL") != zsh_path:
-        print("Cambiando el shell predeterminado a Zsh (puede pedir autenticación)...", flush=True)
-        try:
-            resultado = subprocess.run(
-                ["chsh", "-s", zsh_path],
-                capture_output=True,
-                text=True,
-                timeout=15,
-            )
-            if resultado.returncode != 0:
-                print(f"Aviso: no se pudo establecer Zsh como shell predeterminado: {resultado.stderr.strip()}")
-        except subprocess.TimeoutExpired:
-            print("Aviso: chsh tardó demasiado; Zsh quedó instalado, pero no se cambió el shell predeterminado.")
+    if zsh_path and os.environ.get("SHELL") != zsh_path:
+        if not establecer_predeterminado:
+            print("Zsh quedó instalado. No se cambió el shell predeterminado.")
+            print(f"Para cambiarlo manualmente: chsh -s {zsh_path}")
+        elif not dry_run:
+            shells = Path("/etc/shells").read_text(encoding="utf-8") if Path("/etc/shells").is_file() else ""
+            if zsh_path not in shells.splitlines():
+                print(f"Aviso: {zsh_path} no aparece en /etc/shells; no se cambió el shell predeterminado.")
+            else:
+                print("Cambiando el shell predeterminado a Zsh (puede pedir autenticación)...", flush=True)
+                try:
+                    resultado = subprocess.run(
+                        ["chsh", "-s", zsh_path],
+                        capture_output=True,
+                        text=True,
+                        timeout=15,
+                    )
+                    if resultado.returncode != 0:
+                        detalle = resultado.stderr.strip() or resultado.stdout.strip()
+                        print(f"Aviso: no se pudo establecer Zsh como shell predeterminado: {detalle}")
+                except subprocess.TimeoutExpired:
+                    print("Aviso: chsh tardó demasiado; Zsh quedó instalado, pero no se cambió el shell predeterminado.")
+        elif dry_run:
+            print(f"Se cambiaría el shell predeterminado con: chsh -s {zsh_path}")
     _notificar(progreso, "Zsh, Oh My Zsh y fuente Nerd", True)
 
 
@@ -1056,10 +1114,142 @@ def instalar_jetbrains_mono_nerd(*, dry_run: bool = False) -> None:
 
 
 def configurar_entorno_terminal(
-    *, dry_run: bool = False, progreso: Progreso | None = None, perfil: str = "wanther"
+    *,
+    dry_run: bool = False,
+    progreso: Progreso | None = None,
+    perfil: str = "wanther",
+    establecer_predeterminado: bool = False,
 ) -> None:
-    configurar_zsh(dry_run=dry_run, progreso=progreso, perfil=perfil)
+    configurar_zsh(
+        dry_run=dry_run,
+        progreso=progreso,
+        perfil=perfil,
+        establecer_predeterminado=establecer_predeterminado,
+    )
     instalar_jetbrains_mono_nerd(dry_run=dry_run)
+
+
+def configurar_fuentes_y_escalado(*, dry_run: bool = False, progreso: Progreso | None = None) -> None:
+    """Configura fuentes legibles y un escalado conservador para GNOME."""
+    _notificar(progreso, "Fuentes y escalado")
+    ajustes = (
+        ("org.gnome.desktop.interface", "font-name", "'Cantarell 11'"),
+        ("org.gnome.desktop.interface", "document-font-name", "'Cantarell 11'"),
+        ("org.gnome.desktop.interface", "monospace-font-name", "'JetBrainsMono Nerd Font Mono 11'"),
+        ("org.gnome.desktop.interface", "text-scaling-factor", "1.0"),
+    )
+    for esquema, clave, valor in ajustes:
+        _ejecutar_opcional(["gsettings", "set", esquema, clave, valor], dry_run=dry_run)
+    _notificar(progreso, "Fuentes y escalado", True)
+
+
+SOUND_THEME_BASE = Path.home() / ".local/share/sounds"
+SOUND_EVENTS = {
+    "bell": (0.18, (880.0, 1174.66)),
+    "dialog-information": (0.24, (523.25, 659.25)),
+    "dialog-warning": (0.28, (440.0, 349.23)),
+    "dialog-error": (0.34, (220.0, 164.81)),
+    "complete": (0.30, (659.25, 783.99, 1046.5)),
+    "desktop-login": (0.42, (392.0, 523.25, 659.25)),
+    "desktop-logout": (0.42, (659.25, 523.25, 392.0)),
+    "message-new-instant": (0.22, (783.99, 987.77)),
+}
+
+
+def _generar_tono_wav(ruta: Path, duracion: float, frecuencias: tuple[float, ...], *, grave: bool) -> None:
+    """Genera un tono corto sin dependencias externas."""
+    frecuencia_muestreo = 44100
+    total = int(frecuencia_muestreo * duracion)
+    muestras = bytearray()
+    for indice in range(total):
+        tiempo = indice / frecuencia_muestreo
+        posicion = min(len(frecuencias) - 1, int(tiempo / duracion * len(frecuencias)))
+        frecuencia = frecuencias[posicion]
+        envolvente = min(1.0, indice / (frecuencia_muestreo * 0.015), (total - indice) / (frecuencia_muestreo * 0.035))
+        amplitud = 0.22 if grave else 0.16
+        muestra = int(32767 * amplitud * envolvente * math.sin(2 * math.pi * frecuencia * tiempo))
+        muestras.extend(struct.pack("<h", muestra))
+    with wave.open(str(ruta), "wb") as archivo:
+        archivo.setnchannels(1)
+        archivo.setsampwidth(2)
+        archivo.setframerate(frecuencia_muestreo)
+        archivo.writeframes(muestras)
+
+
+def crear_tema_sonido(perfil: str, *, dry_run: bool = False) -> Path:
+    """Crea un tema local con tonos propios y herencia para eventos restantes."""
+    nombre, _, _ = PERFILES[perfil]["sonido"]
+    destino = SOUND_THEME_BASE / nombre
+    if dry_run:
+        print(f"Se generarían tonos personalizados en {destino}")
+        return destino
+    destino.mkdir(parents=True, exist_ok=True)
+    descripcion = "Interfaz cálida y rítmica" if perfil == "wanther" else "Interfaz sobria de laboratorio"
+    (destino / "index.theme").write_text(
+        f"[Sound Theme]\nName={nombre}\nComment={descripcion}\nInherits=freedesktop\nDirectories=.\n",
+        encoding="utf-8",
+    )
+    for evento, (duracion, frecuencias) in SOUND_EVENTS.items():
+        _generar_tono_wav(
+            destino / f"{evento}.wav",
+            duracion,
+            frecuencias,
+            grave=perfil == "k3rnyx",
+        )
+    return destino
+
+
+def configurar_sonido(
+    perfil: str, *, dry_run: bool = False, progreso: Progreso | None = None
+) -> None:
+    """Aplica el tema de sonido correspondiente al perfil elegido."""
+    _notificar(progreso, "Sonido del perfil")
+    tema, sonidos_evento, sonidos_entrada = PERFILES[perfil]["sonido"]
+    crear_tema_sonido(perfil, dry_run=dry_run)
+    print(f"Tema de sonido {perfil}: {tema}")
+    _ejecutar_opcional(
+        ["gsettings", "set", "org.gnome.desktop.sound", "theme-name", f"'{tema}'"],
+        dry_run=dry_run,
+    )
+    _ejecutar_opcional(
+        ["gsettings", "set", "org.gnome.desktop.sound", "event-sounds", str(sonidos_evento).lower()],
+        dry_run=dry_run,
+    )
+    _ejecutar_opcional(
+        ["gsettings", "set", "org.gnome.desktop.sound", "input-feedback-sounds", str(sonidos_entrada).lower()],
+        dry_run=dry_run,
+    )
+    _notificar(progreso, "Sonido del perfil", True)
+
+
+def configurar_atajos(*, dry_run: bool = False, progreso: Progreso | None = None) -> None:
+    """Añade atajos útiles sin reemplazar los atajos personalizados existentes."""
+    _notificar(progreso, "Atajos de teclado")
+    base = "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/"
+    atajos = (
+        ("ubuntu-customizer-terminal", "Terminal", "gnome-terminal", "<Primary><Alt>t"),
+        ("ubuntu-customizer-files", "Archivos", "nautilus", "<Super>e"),
+    )
+    if dry_run:
+        lista = "[]"
+    else:
+        comprobar_comando("dconf")
+        lista = subprocess.run(
+            ["dconf", "read", f"{base}list"], capture_output=True, text=True, check=True
+        ).stdout.strip() or "[]"
+    rutas = []
+    for identificador, nombre, comando, combinacion in atajos:
+        ruta = f"{base}{identificador}/"
+        rutas.append(ruta)
+        for clave, valor in (("name", nombre), ("command", comando), ("binding", combinacion)):
+            _dconf_write(f"{ruta}{clave}", f"'{valor}'", dry_run=dry_run)
+    existentes = [valor.strip().strip("'") for valor in lista.strip("[]").split(",") if valor.strip()]
+    for ruta in rutas:
+        if ruta not in existentes:
+            existentes.append(ruta)
+    nueva_lista = "[" + ", ".join(f"'{valor}'" for valor in existentes) + "]"
+    _dconf_write(f"{base}list", nueva_lista, dry_run=dry_run)
+    _notificar(progreso, "Atajos de teclado", True)
 
 
 def configurar_wanther(*, dry_run: bool = False) -> None:
@@ -1363,6 +1553,7 @@ def instalar_wallpapers_tokyonight(
     destino = Path.home() / ".local/share/backgrounds/TokyoNight"
     if dry_run:
         print(f"\nSe descargarían wallpapers TokyoNight en {destino}")
+        print("Se configuraría un wallpaper dinámico para el escritorio y la pantalla de bloqueo.")
         _notificar(progreso, "Wallpapers TokyoNight", True)
         return
 
@@ -1381,12 +1572,151 @@ def instalar_wallpapers_tokyonight(
     ] or imagenes
     imagen_tokyonight = secrets.choice(imagenes_tokyonight)
     uri = imagen_tokyonight.as_uri()
+    if len(imagenes_tokyonight) >= 2:
+        dinamico = destino / "tokyonight-dynamic.xml"
+        primera, segunda = imagenes_tokyonight[:2]
+        dinamico.write_text(
+            """<background>
+  <starttime>
+    <year>2024</year><month>1</month><day>1</day>
+    <hour>6</hour><minute>0</minute><second>0</second>
+  </starttime>
+  <static><duration>21600.0</duration><file>{}</file></static>
+  <static><duration>21600.0</duration><file>{}</file></static>
+</background>
+""".format(primera, segunda),
+            encoding="utf-8",
+        )
+        uri = dinamico.as_uri()
+        print(f"Wallpaper dinámico creado: {dinamico.name}")
     for clave in ("picture-uri", "picture-uri-dark"):
         _ejecutar_opcional(
             ["gsettings", "set", "org.gnome.desktop.background", clave, f"'{uri}'"],
         )
+    for clave in ("picture-uri", "picture-uri-dark"):
+        _ejecutar_opcional(
+            ["gsettings", "set", "org.gnome.desktop.screensaver", clave, f"'{uri}'"],
+        )
     print(f"\nWallpaper TokyoNight aplicado: {imagen_tokyonight.name}")
     _notificar(progreso, "Wallpapers TokyoNight", True)
+
+
+GRUB_THEME_PATH = "/boot/grub/themes/ubuntu-customizer/theme.txt"
+GRUB_SETTINGS = {
+    "GRUB_TIMEOUT_STYLE": "menu",
+    "GRUB_TIMEOUT": "5",
+    "GRUB_GFXMODE": "auto",
+    "GRUB_THEME": f'"{GRUB_THEME_PATH}"',
+}
+GRUB_THEME = """# Ubuntu Customizer · TokyoNight Storm
+desktop-color: "#1a1b26"
+desktop-image: ""
+title-text: "Ubuntu Customizer"
+
++ boot_menu {
+  left = 10%
+  top = 22%
+  width = 80%
+  height = 56%
+  item_color = "#c0caf5"
+  selected_item_color = "#7dcfff"
+  item_font = "DejaVu Sans 14"
+}
+"""
+
+
+def configurar_grub(
+    *, dry_run: bool = False, progreso: Progreso | None = None, sudo_password: str | None = None
+) -> None:
+    """Aplica un tema GRUB minimalista TokyoNight y regenera su configuración."""
+    _notificar(progreso, "GRUB TokyoNight")
+    grub_default = Path("/etc/default/grub")
+    print("\nConfigurando GRUB con TokyoNight Storm")
+    if dry_run:
+        print(f"  - actualizaría {grub_default}")
+        print(f"  - instalaría {GRUB_THEME_PATH}")
+        print("  - ejecutaría update-grub")
+        _notificar(progreso, "GRUB TokyoNight", True)
+        return
+
+    comprobar_comando("update-grub")
+    if not grub_default.is_file():
+        raise RuntimeError("No se encontró /etc/default/grub.")
+    contenido = grub_default.read_text(encoding="utf-8")
+    for clave, valor in GRUB_SETTINGS.items():
+        patron = re.compile(rf"^\s*(?:#\s*)?{re.escape(clave)}=.*$", re.MULTILINE)
+        linea = f"{clave}={valor}"
+        if patron.search(contenido):
+            contenido = patron.sub(linea, contenido, count=1)
+        else:
+            contenido = contenido.rstrip("\n") + f"\n{linea}\n"
+
+    with tempfile.TemporaryDirectory(prefix="ubuntu-customizer-grub-") as temporal:
+        archivo_grub = Path(temporal) / "grub.default"
+        archivo_tema = Path(temporal) / "theme.txt"
+        archivo_grub.write_text(contenido, encoding="utf-8")
+        archivo_tema.write_text(GRUB_THEME, encoding="utf-8")
+        ejecutar_comando(
+            ["sudo", "install", "-m", "0644", str(archivo_grub), str(grub_default)],
+            sudo_password=sudo_password,
+        )
+        ejecutar_comando(
+            ["sudo", "install", "-d", "/boot/grub/themes/ubuntu-customizer"],
+            sudo_password=sudo_password,
+        )
+        ejecutar_comando(
+            ["sudo", "install", "-m", "0644", str(archivo_tema), GRUB_THEME_PATH],
+            sudo_password=sudo_password,
+        )
+        ejecutar_comando(["sudo", "update-grub"], sudo_password=sudo_password)
+    _notificar(progreso, "GRUB TokyoNight", True)
+    print("GRUB TokyoNight aplicado correctamente")
+
+
+GDM_PROFILE = """user-db:user
+system-db:gdm
+file-db:/usr/share/gdm/greeter-dconf-defaults
+"""
+GDM_KEYFILE = """[org/gnome/login-screen]
+banner-message-enable=true
+banner-message-text='Ubuntu Customizer · TokyoNight Storm'
+"""
+
+
+def configurar_gdm(
+    *, dry_run: bool = False, progreso: Progreso | None = None, sudo_password: str | None = None
+) -> None:
+    """Personaliza el greeter GDM3 usando el perfil dconf oficial del sistema."""
+    _notificar(progreso, "Login GDM3 TokyoNight")
+    print("\nConfigurando login GDM3 con TokyoNight")
+    if dry_run:
+        print("  - instalaría /etc/dconf/profile/gdm")
+        print("  - instalaría /etc/dconf/db/gdm.d/01-ubuntu-customizer")
+        print("  - ejecutaría dconf update")
+        _notificar(progreso, "Login GDM3 TokyoNight", True)
+        return
+
+    comprobar_comando("dconf")
+    with tempfile.TemporaryDirectory(prefix="ubuntu-customizer-gdm-") as temporal:
+        perfil = Path(temporal) / "gdm"
+        keyfile = Path(temporal) / "01-ubuntu-customizer"
+        perfil.write_text(GDM_PROFILE, encoding="utf-8")
+        keyfile.write_text(GDM_KEYFILE, encoding="utf-8")
+        ejecutar_comando(
+            ["sudo", "install", "-d", "/etc/dconf/profile", "/etc/dconf/db/gdm.d"],
+            sudo_password=sudo_password,
+        )
+        ejecutar_comando(
+            ["sudo", "install", "-m", "0644", str(perfil), "/etc/dconf/profile/gdm"],
+            sudo_password=sudo_password,
+        )
+        ejecutar_comando(
+            ["sudo", "install", "-m", "0644", str(keyfile), "/etc/dconf/db/gdm.d/01-ubuntu-customizer"],
+            sudo_password=sudo_password,
+        )
+        ejecutar_comando(["sudo", "dconf", "update"], sudo_password=sudo_password)
+    _notificar(progreso, "Login GDM3 TokyoNight", True)
+    print("Login GDM3 personalizado; se aplicará en el próximo inicio de sesión.")
 
 
 def instalar_tokyonight_storm(
@@ -1395,6 +1725,7 @@ def instalar_tokyonight_storm(
     progreso: Progreso | None = None,
     sudo_password: str | None = None,
     perfil: str = "wanther",
+    establecer_zsh_predeterminado: bool = False,
 ) -> None:
     """Instala dependencias, descarga el tema y activa su variante Storm."""
     destino = Path.home() / CARPETA_INSTALACION
@@ -1454,7 +1785,12 @@ def instalar_tokyonight_storm(
     else:
         print("\nTodas las dependencias del sistema ya están instaladas.")
     _notificar(progreso, "Dependencias del sistema", True)
-    configurar_entorno_terminal(dry_run=dry_run, progreso=progreso, perfil=perfil)
+    configurar_entorno_terminal(
+        dry_run=dry_run,
+        progreso=progreso,
+        perfil=perfil,
+        establecer_predeterminado=establecer_zsh_predeterminado,
+    )
     if perfil == "wanther":
         configurar_wanther(dry_run=dry_run)
     else:
@@ -1484,6 +1820,11 @@ def instalar_tokyonight_storm(
     if dry_run:
         ejecutar_comando(comando_instalacion, dry_run=True)
         print("\nSe instalaría TokyoNight GTK con la variante Storm, shell flotante y sin outline.")
+        configurar_grub(dry_run=True, progreso=progreso)
+        configurar_gdm(dry_run=True, progreso=progreso)
+        configurar_fuentes_y_escalado(dry_run=True, progreso=progreso)
+        configurar_atajos(dry_run=True, progreso=progreso)
+        configurar_sonido(perfil, dry_run=True, progreso=progreso)
         return
     comprobar_comando("git")
     comprobar_comando("gnome-shell")
@@ -1501,6 +1842,11 @@ def instalar_tokyonight_storm(
         )
     copiar_gtk4()
     aplicar_tokyonight_storm(progreso=progreso)
+    configurar_grub(progreso=progreso, sudo_password=sudo_password)
+    configurar_gdm(progreso=progreso, sudo_password=sudo_password)
+    configurar_fuentes_y_escalado(progreso=progreso)
+    configurar_atajos(progreso=progreso)
+    configurar_sonido(perfil, progreso=progreso)
 
 
 def aplicar_tokyonight_storm(*, dry_run: bool = False, progreso: Progreso | None = None) -> None:
@@ -1549,6 +1895,11 @@ def argumentos() -> argparse.Namespace:
     parser.add_argument("--restore", action="store_true", help="Restaura el respaldo más reciente")
     parser.add_argument("--backup-only", action="store_true", help="Crea un respaldo y termina")
     parser.add_argument(
+        "--zsh-default",
+        action="store_true",
+        help="Intenta establecer Zsh como shell predeterminado",
+    )
+    parser.add_argument(
         "--perfil",
         choices=tuple(PERFILES),
         default="wanther",
@@ -1587,6 +1938,7 @@ def main() -> int:
                 dry_run=args.dry_run,
                 progreso=progreso_cli,
                 perfil=args.perfil,
+                establecer_zsh_predeterminado=args.zsh_default,
             )
         elif args.tema == "mostrar":
             mostrar_tema()
@@ -1599,6 +1951,7 @@ def main() -> int:
                     progreso=progreso,
                     sudo_password=password,
                     perfil=args.perfil,
+                    establecer_zsh_predeterminado=args.zsh_default,
                 ),
                 "2": lambda _progreso, _password: mostrar_tema(),
             })

@@ -31,6 +31,7 @@ MENU_START=0
 MENU_PADDING=60
 DRY_RUN=0
 ASSUME_YES=0
+ZSH_DEFAULT=0
 ACTION=menu
 PROFILE=wanther
 
@@ -92,6 +93,9 @@ run_python() {
     if [[ "$ASSUME_YES" -eq 1 ]]; then
         args+=(--yes)
     fi
+    if [[ "$ZSH_DEFAULT" -eq 1 ]]; then
+        args+=(--zsh-default)
+    fi
 
     bash "$PYTHON_INSTALLER" "${args[@]}"
 }
@@ -112,6 +116,11 @@ PROGRESS_TASKS=(
     "Tema TokyoNight"
     "Shell flotante y transparencia"
     "Perfil GNOME Terminal"
+    "GRUB TokyoNight"
+    "Login GDM3 TokyoNight"
+    "Fuentes y escalado"
+    "Atajos de teclado"
+    "Sonido del perfil"
 )
 BRAILLE_SPINNER=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
 SPINNER_INDEX=0
@@ -345,6 +354,7 @@ parse_args() {
         --restore) ACTION=restore ;;
             --dry-run) DRY_RUN=1 ;;
             --yes) ASSUME_YES=1 ;;
+            --zsh-default) ZSH_DEFAULT=1 ;;
             --perfil)
                 [[ $# -ge 2 ]] || fail "--perfil requiere wanther o k3rnyx"
                 PROFILE="$2"
@@ -353,7 +363,7 @@ parse_args() {
                 shift
                 ;;
             -h|--help)
-                printf 'Uso: %s [--tema|--mostrar|--restore] [--perfil wanther|k3rnyx] [--dry-run] [--yes]\n' "$0"
+                printf 'Uso: %s [--tema|--mostrar|--restore] [--perfil wanther|k3rnyx] [--dry-run] [--yes] [--zsh-default]\n' "$0"
                 exit 0
                 ;;
             *) fail "Opción no reconocida: $1" ;;

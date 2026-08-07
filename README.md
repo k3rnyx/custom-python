@@ -25,6 +25,8 @@ Aplicación de línea de comandos para personalizar GNOME en Ubuntu.
 ./ubuntu-customizer.sh --mostrar
 ./ubuntu-customizer.sh --dry-run --tema
 ./ubuntu-customizer.sh --restore
+# Solo si deseas cambiar el shell de inicio a Zsh
+./ubuntu-customizer.sh --tema --perfil k3rnyx --zsh-default
 ```
 
 Perfiles disponibles desde el menú:
@@ -34,7 +36,15 @@ Perfiles disponibles desde el menú:
 
 El menú Bash es la interfaz principal y delega la lógica de instalación y configuración al motor Python. La personalización configura el perfil `TokyoNight Storm` en la terminal predeterminada de Ubuntu (GNOME Terminal), si ya está instalada. No instala ni reemplaza ningún emulador de terminal.
 
-La configuración global instala Zsh, Oh My Zsh, autocompletado, autosugerencias, resaltado de sintaxis, integraciones para Git, Node, npm, Docker, Python y fzf, además de JetBrains Mono Nerd Font.
+La configuración global instala Zsh, Oh My Zsh, autocompletado, autosugerencias, resaltado de sintaxis, integraciones para Git, Node, npm, Docker, Python y fzf, además de JetBrains Mono Nerd Font. Zsh no reemplaza el shell predeterminado automáticamente; usa `--zsh-default` si quieres solicitar ese cambio.
+
+La personalización también aplica un tema GRUB TokyoNight: menú visible, cinco segundos de espera, colores TokyoNight y un tema en `/boot/grub/themes/ubuntu-customizer/theme.txt`. Se guarda una copia de `/etc/default/grub` dentro del respaldo previo.
+
+También personaliza el login GDM3 mediante un banner `Ubuntu Customizer · TokyoNight Storm` usando la configuración dconf oficial de GNOME. El cambio se aplica al siguiente inicio de sesión y no reinicia GDM automáticamente.
+
+Además configura un wallpaper dinámico TokyoNight para escritorio y pantalla de bloqueo, fuentes GNOME con JetBrains Mono para texto monoespaciado, escalado 1.0 y atajos `Ctrl+Alt+T` para la terminal y `Super+E` para Archivos. Los atajos existentes se conservan.
+
+El sonido también se adapta al perfil con temas propios generados localmente en `~/.local/share/sounds/`: WanTher usa `UbuntuCustomizer-WanTher` con tonos cálidos y K3rNyx usa `UbuntuCustomizer-K3rNyx` con tonos graves y discretos. Ambos heredan eventos no personalizados de `freedesktop`.
 
 Cada perfil instala únicamente sus dependencias específicas. WanTher instala pnpm y Angular CLI mediante npm, mientras que K3rNyx intenta incluir herramientas adicionales como Aircrack-ng, SQLMap, Hydra, John, Nikto y Proxychains4; las que no estén disponibles en los repositorios se omiten como opcionales. UFW no se activa automáticamente para no cortar conexiones existentes.
 
