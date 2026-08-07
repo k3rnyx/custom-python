@@ -48,7 +48,7 @@ Además descarga y conserva toda la colección de wallpapers TokyoNight en `~/.l
 
 El Ubuntu Dock se replica con la configuración de referencia y fija estas aplicaciones, en este orden: Ptyxis, Visual Studio Code, Archivos, Firefox Nightly y Firefox.
 
-También añade logo TokyoNight al login, cursor Bibata azul, bloqueo de pantalla, animaciones, ahorro de energía y un tema Plymouth TokyoNight con regeneración de initramfs. No modifica el tema de iconos del sistema.
+También añade logo TokyoNight al login, instala y selecciona Material Light Cursor, configura bloqueo de pantalla, animaciones, ahorro de energía y un tema Plymouth TokyoNight con regeneración de initramfs. No modifica el tema de iconos del sistema.
 
 El sonido también se adapta al perfil con temas propios generados localmente en `~/.local/share/sounds/`: WanTher usa `UbuntuCustomizer-WanTher` con tonos cálidos y K3rNyx usa `UbuntuCustomizer-K3rNyx` con tonos graves y discretos. Ambos heredan eventos no personalizados de `freedesktop`.
 

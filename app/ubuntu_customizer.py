@@ -50,6 +50,9 @@ ZSH_PLUGIN_REPOS = {
     "zsh-completions": "https://github.com/zsh-users/zsh-completions.git",
 }
 NERD_FONT_URL = "https://github.com/ryanoasis/nerd-fonts/releases/latest/download/JetBrainsMono.tar.xz"
+REPOSITORIO_MATERIAL_CURSOR = "https://github.com/varlesh/material-cursors.git"
+MATERIAL_CURSOR_DIR = Path.home() / ".cache/ubuntu-customizer/material-cursors"
+MATERIAL_CURSOR_NAME = "material_cursors"
 OH_MY_ZSH_DIR = Path.home() / ".oh-my-zsh"
 ZSH_CUSTOM_DIR = OH_MY_ZSH_DIR / "custom"
 FONT_DIR = Path.home() / ".local/share/fonts/JetBrainsMono Nerd Font"
@@ -1261,16 +1264,44 @@ def configurar_sonido(
     _notificar(progreso, "Sonido del perfil", True)
 
 
+def instalar_cursor_material(
+    *, dry_run: bool = False, sudo_password: str | None = None
+) -> None:
+    """Construye e instala Material Cursors y selecciona la variante clara."""
+    print("\nInstalando Material Light Cursor")
+    if dry_run:
+        print(f"  - clonaría {REPOSITORIO_MATERIAL_CURSOR} en {MATERIAL_CURSOR_DIR}")
+        print("  - ejecutaría make build y sudo make install")
+        return
+    if not MATERIAL_CURSOR_DIR.is_dir():
+        ejecutar_comando(
+            ["git", "clone", "--depth", "1", REPOSITORIO_MATERIAL_CURSOR, str(MATERIAL_CURSOR_DIR)]
+        )
+    resultado = subprocess.run(
+        ["make", "-C", str(MATERIAL_CURSOR_DIR), "build"],
+        capture_output=True,
+        text=True,
+    )
+    if resultado.returncode != 0:
+        detalle = resultado.stderr.strip() or resultado.stdout.strip()
+        raise RuntimeError(f"No se pudo construir Material Cursor: {detalle}")
+    ejecutar_comando(
+        ["sudo", "make", "-C", str(MATERIAL_CURSOR_DIR), "install"],
+        sudo_password=sudo_password,
+    )
+
+
 def configurar_bloqueo_cursor_energia(
-    *, dry_run: bool = False, progreso: Progreso | None = None
+    *, dry_run: bool = False, progreso: Progreso | None = None, sudo_password: str | None = None
 ) -> None:
     """Configura bloqueo, cursor, animaciones y consumo sin tocar iconos."""
     _notificar(progreso, "Bloqueo, cursor y energía")
+    instalar_cursor_material(dry_run=dry_run, sudo_password=sudo_password)
     ajustes = (
         ("org.gnome.desktop.screensaver", "lock-enabled", "true"),
         ("org.gnome.desktop.screensaver", "lock-delay", "uint32 0"),
         ("org.gnome.desktop.interface", "enable-animations", "true"),
-        ("org.gnome.desktop.interface", "cursor-theme", "'Bibata-Modern-Ice'"),
+        ("org.gnome.desktop.interface", "cursor-theme", f"'{MATERIAL_CURSOR_NAME}'"),
         ("org.gnome.desktop.interface", "cursor-size", "24"),
         ("org.gnome.desktop.session", "idle-delay", "uint32 900"),
         ("org.gnome.settings-daemon.plugins.power", "idle-dim", "true"),
@@ -1280,7 +1311,7 @@ def configurar_bloqueo_cursor_energia(
     )
     for esquema, clave, valor in ajustes:
         _ejecutar_opcional(["gsettings", "set", esquema, clave, valor], dry_run=dry_run)
-    print("Bloqueo, animaciones, cursor Bibata y ahorro de energía configurados")
+    print("Bloqueo, animaciones, cursor Material Light y ahorro de energía configurados")
     _notificar(progreso, "Bloqueo, cursor y energía", True)
 
 
@@ -2153,7 +2184,9 @@ def instalar_tokyonight_storm(
         "neovim",
         "shellcheck",
         "shfmt",
-        "bibata-cursor-theme",
+        "make",
+        "inkscape",
+        "xcursorgen",
         "plymouth-themes",
         "libglib2.0-bin",
         *PERFILES[perfil]["paquetes"],
@@ -2263,7 +2296,7 @@ def instalar_tokyonight_storm(
     configurar_fuentes_y_escalado(progreso=progreso)
     configurar_atajos(progreso=progreso)
     configurar_sonido(perfil, progreso=progreso)
-    configurar_bloqueo_cursor_energia(progreso=progreso)
+    configurar_bloqueo_cursor_energia(progreso=progreso, sudo_password=sudo_password)
     configurar_plymouth(progreso=progreso, sudo_password=sudo_password)
     validar_personalizacion(progreso=progreso)
 
