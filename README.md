@@ -42,7 +42,7 @@ La personalización también aplica un tema GRUB TokyoNight: menú visible, cinc
 
 El instalador de TokyoNight Storm instala todas las variantes de color disponibles, en tamaños estándar y compacto, incluyendo los archivos GTK3, GTK4 y GNOME Shell.
 
-También personaliza el login GDM3 mediante un banner `Ubuntu Customizer · TokyoNight Storm`, instala el tema GTK TokyoNight en `/usr/share/themes/` para que GDM pueda verlo, aplica colores oscuros y usa un fondo SVG TokyoNight Storm generado localmente en `/usr/share/backgrounds/ubuntu-customizer/`. Usa la configuración dconf oficial de GNOME; el cambio se aplica al siguiente inicio de sesión y no reinicia GDM automáticamente.
+También personaliza el login GDM3 mediante un banner `Ubuntu Customizer · TokyoNight Storm`, instala el tema GTK TokyoNight en `/usr/share/themes/` para que GDM pueda verlo, aplica colores oscuros y usa una imagen real de la colección TokyoNight como fondo en `/usr/share/backgrounds/ubuntu-customizer/`. La misma colección se utiliza como fondo del menú GRUB. Usa la configuración dconf oficial de GNOME; el cambio se aplica al siguiente inicio de sesión y no reinicia GDM automáticamente.
 
 Además descarga y conserva toda la colección de wallpapers TokyoNight en `~/.local/share/backgrounds/TokyoNight`, genera un manifiesto y configura una rotación dinámica de todas las imágenes para el escritorio y la pantalla de bloqueo. También configura fuentes GNOME con JetBrains Mono para texto monoespaciado, escalado 1.0 y atajos `Ctrl+Alt+T` para la terminal y `Super+E` para Archivos. Los atajos existentes se conservan.
 

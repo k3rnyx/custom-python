@@ -149,6 +149,10 @@ def crear_respaldo() -> Path:
         (Path("/etc/dconf/profile/gdm"), "gdm.profile"),
         (Path("/etc/dconf/db/gdm.d/01-ubuntu-customizer"), "gdm.keyfile"),
         (Path("/usr/share/backgrounds/ubuntu-customizer/tokyonight-storm.svg"), "gdm.background.svg"),
+        (Path("/usr/share/backgrounds/ubuntu-customizer/tokyonight-login.png"), "gdm.background.png"),
+        (Path("/usr/share/backgrounds/ubuntu-customizer/tokyonight-login.jpg"), "gdm.background.jpg"),
+        (Path("/usr/share/backgrounds/ubuntu-customizer/tokyonight-login.jpeg"), "gdm.background.jpeg"),
+        (Path("/usr/share/backgrounds/ubuntu-customizer/tokyonight-login.tga"), "gdm.background.tga"),
     ):
         if ruta.is_file() and os.access(ruta, os.R_OK):
             shutil.copy2(ruta, destino / nombre)
@@ -207,6 +211,10 @@ def restaurar_respaldo() -> None:
         ("gdm.profile", "/etc/dconf/profile/gdm"),
         ("gdm.keyfile", "/etc/dconf/db/gdm.d/01-ubuntu-customizer"),
         ("gdm.background.svg", "/usr/share/backgrounds/ubuntu-customizer/tokyonight-storm.svg"),
+        ("gdm.background.png", "/usr/share/backgrounds/ubuntu-customizer/tokyonight-login.png"),
+        ("gdm.background.jpg", "/usr/share/backgrounds/ubuntu-customizer/tokyonight-login.jpg"),
+        ("gdm.background.jpeg", "/usr/share/backgrounds/ubuntu-customizer/tokyonight-login.jpeg"),
+        ("gdm.background.tga", "/usr/share/backgrounds/ubuntu-customizer/tokyonight-login.tga"),
     ):
         archivo = origen / nombre
         ausente = origen / f"{nombre}.absent"
@@ -216,7 +224,10 @@ def restaurar_respaldo() -> None:
             ejecutar_comando(["sudo", "rm", "-f", ruta])
     if any(
         (origen / nombre).exists() or (origen / f"{nombre}.absent").exists()
-        for nombre in ("gdm.profile", "gdm.keyfile", "gdm.background.svg")
+        for nombre in (
+            "gdm.profile", "gdm.keyfile", "gdm.background.svg", "gdm.background.png",
+            "gdm.background.jpg", "gdm.background.jpeg", "gdm.background.tga",
+        )
     ):
         ejecutar_comando(["sudo", "dconf", "update"])
     print(f"Respaldo restaurado: {origen}")
@@ -1623,8 +1634,9 @@ GRUB_SETTINGS = {
     "GRUB_GFXMODE": "auto",
     "GRUB_THEME": f'"{GRUB_THEME_PATH}"',
 }
-GRUB_THEME = """# Ubuntu Customizer · TokyoNight Storm
+GRUB_THEME_TEMPLATE = """# Ubuntu Customizer · TokyoNight Storm
 desktop-color: "#1a1b26"
+desktop-image: "{background}"
 title-text: "Ubuntu Customizer"
 
 + boot_menu {
@@ -1639,6 +1651,19 @@ title-text: "Ubuntu Customizer"
 """
 
 
+def seleccionar_wallpaper_compatible() -> Path:
+    """Selecciona una imagen descargada que GDM3 y GRUB puedan leer."""
+    destino = Path.home() / ".local/share/backgrounds/TokyoNight"
+    extensiones = {".png", ".jpg", ".jpeg", ".tga"}
+    imagenes = sorted(
+        archivo for archivo in destino.rglob("*")
+        if archivo.is_file() and archivo.suffix.lower() in extensiones
+    )
+    if not imagenes:
+        raise RuntimeError(f"No se encontró un wallpaper compatible en {destino}")
+    return imagenes[0]
+
+
 def configurar_grub(
     *, dry_run: bool = False, progreso: Progreso | None = None, sudo_password: str | None = None
 ) -> None:
@@ -1649,6 +1674,7 @@ def configurar_grub(
     if dry_run:
         print(f"  - actualizaría {grub_default}")
         print(f"  - instalaría {GRUB_THEME_PATH}")
+        print("  - usaría un wallpaper TokyoNight de la colección como fondo")
         print("  - ejecutaría update-grub")
         _notificar(progreso, "GRUB TokyoNight", True)
         return
@@ -1657,6 +1683,10 @@ def configurar_grub(
     if not grub_default.is_file():
         raise RuntimeError("No se encontró /etc/default/grub.")
     contenido = grub_default.read_text(encoding="utf-8")
+    wallpaper = seleccionar_wallpaper_compatible()
+    nombre_wallpaper = f"tokyonight-login{wallpaper.suffix.lower()}"
+    ruta_wallpaper = Path("/boot/grub/themes/ubuntu-customizer") / nombre_wallpaper
+    grub_theme = GRUB_THEME_TEMPLATE.format(background=nombre_wallpaper)
     for clave, valor in GRUB_SETTINGS.items():
         patron = re.compile(rf"^\s*(?:#\s*)?{re.escape(clave)}=.*$", re.MULTILINE)
         linea = f"{clave}={valor}"
@@ -1670,7 +1700,7 @@ def configurar_grub(
         archivo_tema = Path(temporal) / "theme.txt"
         respaldo_grub = Path(temporal) / "grub.default.original"
         archivo_grub.write_text(contenido, encoding="utf-8")
-        archivo_tema.write_text(GRUB_THEME, encoding="utf-8")
+        archivo_tema.write_text(grub_theme, encoding="utf-8")
         respaldo_grub.write_text(grub_default.read_text(encoding="utf-8"), encoding="utf-8")
         try:
             ejecutar_comando(
@@ -1679,6 +1709,10 @@ def configurar_grub(
             )
             ejecutar_comando(
                 ["sudo", "install", "-d", "/boot/grub/themes/ubuntu-customizer"],
+                sudo_password=sudo_password,
+            )
+            ejecutar_comando(
+                ["sudo", "install", "-m", "0644", str(wallpaper), str(ruta_wallpaper)],
                 sudo_password=sudo_password,
             )
             ejecutar_comando(
@@ -1710,7 +1744,6 @@ GDM_PROFILE = """user-db:user
 system-db:gdm
 file-db:/usr/share/gdm/greeter-dconf-defaults
 """
-GDM_BACKGROUND_PATH = "/usr/share/backgrounds/ubuntu-customizer/tokyonight-storm.svg"
 GDM_BACKGROUND = """<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080">
 <defs>
   <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
@@ -1735,8 +1768,8 @@ banner-message-enable=true
 banner-message-text='Ubuntu Customizer · TokyoNight Storm'
 
 [org/gnome/desktop/background]
-picture-uri='file:///usr/share/backgrounds/ubuntu-customizer/tokyonight-storm.svg'
-picture-uri-dark='file:///usr/share/backgrounds/ubuntu-customizer/tokyonight-storm.svg'
+picture-uri='file://{background_path}'
+picture-uri-dark='file://{background_path}'
 color-shading-type='solid'
 primary-color='#1a1b26'
 secondary-color='#16161e'
@@ -1773,7 +1806,7 @@ def configurar_gdm(
         instalar_tema_gdm(tema, dry_run=True)
         print("  - instalaría /etc/dconf/profile/gdm")
         print("  - instalaría /etc/dconf/db/gdm.d/01-ubuntu-customizer")
-        print(f"  - instalaría el fondo TokyoNight Storm en {GDM_BACKGROUND_PATH}")
+        print("  - instalaría un wallpaper de la colección TokyoNight como fondo")
         print("  - aplicaría colores oscuros TokyoNight Storm al greeter")
         print("  - ejecutaría dconf update")
         _notificar(progreso, "Login GDM3 TokyoNight", True)
@@ -1783,10 +1816,17 @@ def configurar_gdm(
     with tempfile.TemporaryDirectory(prefix="ubuntu-customizer-gdm-") as temporal:
         perfil = Path(temporal) / "gdm"
         keyfile = Path(temporal) / "01-ubuntu-customizer"
-        fondo = Path(temporal) / "tokyonight-storm.svg"
+        wallpaper = seleccionar_wallpaper_compatible()
+        nombre_wallpaper = f"tokyonight-login{wallpaper.suffix.lower()}"
+        ruta_wallpaper = Path("/usr/share/backgrounds/ubuntu-customizer") / nombre_wallpaper
         perfil.write_text(GDM_PROFILE, encoding="utf-8")
-        keyfile.write_text(GDM_KEYFILE_TEMPLATE.format(gtk_theme=tema), encoding="utf-8")
-        fondo.write_text(GDM_BACKGROUND, encoding="utf-8")
+        keyfile.write_text(
+            GDM_KEYFILE_TEMPLATE.format(
+                gtk_theme=tema,
+                background_path=ruta_wallpaper,
+            ),
+            encoding="utf-8",
+        )
         instalar_tema_gdm(tema, sudo_password=sudo_password)
         ejecutar_comando(
             ["sudo", "install", "-d", "/etc/dconf/profile", "/etc/dconf/db/gdm.d", "/usr/share/backgrounds/ubuntu-customizer"],
@@ -1801,7 +1841,7 @@ def configurar_gdm(
             sudo_password=sudo_password,
         )
         ejecutar_comando(
-            ["sudo", "install", "-m", "0644", str(fondo), GDM_BACKGROUND_PATH],
+            ["sudo", "install", "-m", "0644", str(wallpaper), str(ruta_wallpaper)],
             sudo_password=sudo_password,
         )
         ejecutar_comando(["sudo", "dconf", "update"], sudo_password=sudo_password)
