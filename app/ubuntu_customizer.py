@@ -2195,6 +2195,15 @@ def instalar_tokyonight_storm(
     _notificar(progreso, "Dependencias del sistema")
     faltantes = _dependencias_faltantes(dependencias)
     if faltantes:
+        paquetes_cursor = {"inkscape", "xcursorgen"}
+        indices_desactualizados = any(
+            paquete in paquetes_cursor
+            and subprocess.run(["apt-cache", "show", paquete], capture_output=True).returncode != 0
+            for paquete in faltantes
+        )
+        if indices_desactualizados:
+            print("Índices APT sin esos paquetes; actualizando repositorios antes de instalar.")
+            ejecutar_comando(["sudo", "apt-get", "update"], sudo_password=sudo_password)
         opciones_apt = ["install", "-y"]
         if any(
             _paquete_instalado(paquete) and _paquete_requiere_reparacion(paquete)

@@ -74,7 +74,7 @@ DEPENDENCIAS_SISTEMA=(
     gnome-shell-extension-manager gnome-tweaks sassc gtk2-engines-murrine
     gnome-themes-extra dconf-cli zsh curl wget unzip fontconfig fzf tmux
     direnv ripgrep fd-find bat jq zoxide eza btop tealdeer neovim shellcheck shfmt
-    deepin-icon-theme papirus-icon-theme
+    deepin-icon-theme papirus-icon-theme make inkscape xcursorgen plymouth-themes
     libglib2.0-bin pkg-config libssl-dev libffi-dev
 )
 
