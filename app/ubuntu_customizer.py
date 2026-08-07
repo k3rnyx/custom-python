@@ -1435,13 +1435,28 @@ def _ruta_tema_instalado(nombre: str) -> Path | None:
 
 def copiar_gtk4(*, dry_run: bool = False) -> None:
     """Copia los archivos GTK4 del tema a ~/.config/gtk-4.0."""
-    tema = _tema_tokyonight_instalado()
-    if tema is None:
-        raise RuntimeError("No se encontró una instalación de TokyoNight en ~/.themes.")
-    origen = _ruta_tema_instalado(tema)
-    gtk4 = origen / "gtk-4.0" if origen else None
     destino = Path.home() / ".config/gtk-4.0"
     archivos = ("gtk.css", "gtk-dark.css")
+    if destino.is_dir() and (destino / "assets").is_dir() and all(
+        (destino / archivo).exists() for archivo in archivos
+    ):
+        print(f"GTK4 ya está instalado en {destino}; se reutiliza la instalación existente.")
+        return
+    candidatos = []
+    for base in (Path.home() / ".themes", Path.home() / ".local/share/themes"):
+        if base.is_dir():
+            candidatos.extend(
+                ruta for ruta in base.iterdir()
+                if ruta.is_dir() and "tokyonight" in ruta.name.lower()
+            )
+    candidatos.sort(key=lambda ruta: ("storm" not in ruta.name.lower(), ruta.name.lower()))
+    origen = next((ruta for ruta in candidatos if (ruta / "gtk-4.0").is_dir()), None)
+    if origen is None:
+        raise RuntimeError(
+            "No se encontró una variante TokyoNight con carpeta gtk-4.0 en "
+            f"{Path.home() / '.themes'} o {Path.home() / '.local/share/themes'}."
+        )
+    gtk4 = origen / "gtk-4.0" if origen else None
     if gtk4 is None or not gtk4.is_dir():
         raise RuntimeError("La instalación de TokyoNight no contiene una carpeta gtk-4.0.")
 
@@ -1452,22 +1467,24 @@ def copiar_gtk4(*, dry_run: bool = False) -> None:
             print(f"  - {gtk4 / archivo}")
         return
 
-    destino.mkdir(parents=True, exist_ok=True)
-    assets = gtk4 / "assets"
-    destino_assets = destino / "assets"
-    if assets.is_dir():
-        if destino_assets.is_symlink():
-            if destino_assets.resolve() == assets.resolve():
-                destino_assets = None
-            else:
+    try:
+        destino.mkdir(parents=True, exist_ok=True)
+        assets = gtk4 / "assets"
+        destino_assets = destino / "assets"
+        if assets.is_dir():
+            if destino_assets.is_symlink():
+                if destino_assets.resolve() == assets.resolve():
+                    destino_assets = None
+                else:
+                    destino_assets.unlink()
+            elif destino_assets.exists() and not destino_assets.is_dir():
                 destino_assets.unlink()
-        elif destino_assets.exists() and not destino_assets.is_dir():
-            destino_assets.unlink()
-        if destino_assets is not None:
-            shutil.copytree(assets, destino_assets, dirs_exist_ok=True, symlinks=True)
-    for archivo in archivos:
-        origen_archivo = gtk4 / archivo
-        if origen_archivo.is_file():
+            if destino_assets is not None:
+                shutil.copytree(assets, destino_assets, dirs_exist_ok=True, symlinks=True)
+        for archivo in archivos:
+            origen_archivo = gtk4 / archivo
+            if not origen_archivo.is_file():
+                continue
             destino_archivo = destino / archivo
             if destino_archivo.is_symlink():
                 if destino_archivo.resolve() == origen_archivo.resolve():
@@ -1476,6 +1493,11 @@ def copiar_gtk4(*, dry_run: bool = False) -> None:
             elif destino_archivo.exists() and destino_archivo.is_dir():
                 shutil.rmtree(destino_archivo)
             shutil.copy2(origen_archivo, destino_archivo)
+    except OSError as error:
+        raise RuntimeError(
+            "No se pudieron copiar los archivos GTK4 "
+            f"desde {gtk4} hacia {destino}: {error}"
+        ) from error
 
 
 def aplicar_transparencia_shell(nombre: str, *, dry_run: bool = False) -> None:
