@@ -964,6 +964,38 @@ def _clonar_si_falta(repositorio: str, destino: Path, *, dry_run: bool = False) 
         raise RuntimeError(f"Tiempo agotado al descargar {repositorio}. Comprueba la conexión a Internet.") from error
 
 
+def _sincronizar_coleccion_wallpapers(repositorio: str, destino: Path, *, dry_run: bool = False) -> None:
+    """Descarga la colección o actualiza su clon sin eliminar imágenes existentes."""
+    if not destino.exists():
+        _clonar_si_falta(repositorio, destino, dry_run=dry_run)
+        return
+    if not (destino / ".git").is_dir():
+        print(f"Se conservará la colección local de wallpapers en {destino}.")
+        return
+
+    comando = ["git", "-C", str(destino), "pull", "--ff-only", "--depth", "1"]
+    if dry_run:
+        ejecutar_comando(comando, dry_run=True)
+        return
+    print(f"Actualizando la colección de wallpapers en {destino}", flush=True)
+    try:
+        entorno = os.environ.copy()
+        entorno["GIT_TERMINAL_PROMPT"] = "1"
+        subprocess.run(
+            comando,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=180,
+            env=entorno,
+        )
+    except subprocess.TimeoutExpired as error:
+        raise RuntimeError("Tiempo agotado al actualizar los wallpapers. Comprueba la conexión a Internet.") from error
+    except subprocess.CalledProcessError as error:
+        detalle = error.stderr.strip() or error.stdout.strip()
+        raise RuntimeError(f"No se pudo actualizar la colección de wallpapers: {detalle}") from error
+
+
 def _prompt_personalizado(perfil: str) -> str:
     """Devuelve un prompt Zsh contextual para el perfil seleccionado."""
     contexto = """
@@ -1921,7 +1953,7 @@ def instalar_wallpapers_tokyonight(
         _notificar(progreso, "Wallpapers TokyoNight", True)
         return
 
-    _clonar_si_falta(REPOSITORIO_WALLPAPERS_TOKYONIGHT, destino)
+    _sincronizar_coleccion_wallpapers(REPOSITORIO_WALLPAPERS_TOKYONIGHT, destino)
     extensiones = {".png", ".jpg", ".jpeg", ".webp"}
     imagenes = sorted(
         archivo for archivo in destino.rglob("*")
@@ -1933,6 +1965,7 @@ def instalar_wallpapers_tokyonight(
     # El repositorio ya contiene la colección completa; no se descartan imágenes
     # por nombre porque muchas no incluyen "Tokyo" o "Night" en el archivo.
     imagenes_tokyonight = imagenes
+    print(f"Colección de wallpapers disponible: {len(imagenes_tokyonight)} imágenes")
     registrar_wallpapers_en_selector(imagenes_tokyonight)
     imagen_tokyonight = imagenes_tokyonight[0]
     dinamico = destino / "tokyonight-dynamic.xml"

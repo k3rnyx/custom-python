@@ -15,6 +15,7 @@ class PtyxisProfileTest(unittest.TestCase):
         self.assertIn('("cursor-shape", "\'block\'")', source)
         self.assertIn('("cursor-blink-mode", "\'off\'")', source)
         self.assertIn("eliminar_perfil_gnome_terminal(dry_run=dry_run)", source)
+        self.assertIn("_sincronizar_coleccion_wallpapers(REPOSITORIO_WALLPAPERS_TOKYONIGHT, destino)", source)
 
 
 if __name__ == "__main__":
