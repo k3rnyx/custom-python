@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import curses
+import getpass
 import io
 import logging
 import math
@@ -855,9 +856,9 @@ def configurar_gnome_terminal(*, dry_run: bool = False, progreso: Progreso | Non
     _notificar(progreso, "Perfil GNOME Terminal")
 
     base = "/org/gnome/terminal/legacy/profiles:/"
-    # `base` ya termina en `:`; añadir otro producía `profiles::UUID`,
-    # una ruta dconf inválida que impedía aplicar el perfil.
-    perfil = f"{base}{TERMINAL_PROFILE_UUID}/"
+    # Las claves de un perfil relocatable usan `/:UUID/`. El UUID de la
+    # lista/default permanece sin los dos puntos iniciales.
+    perfil = f"{base}:{TERMINAL_PROFILE_UUID}/"
     if dry_run:
         lista = ""
     else:
@@ -1044,6 +1045,7 @@ def configurar_zsh(
     progreso: Progreso | None = None,
     perfil: str = "wanther",
     establecer_predeterminado: bool = False,
+    sudo_password: str | None = None,
 ) -> None:
     """Instala Zsh, Oh My Zsh y plugins productivos de forma idempotente."""
     _notificar(progreso, "Zsh, Oh My Zsh y fuente Nerd")
@@ -1121,6 +1123,7 @@ def configurar_zsh(
                         capture_output=True,
                         text=True,
                         timeout=15,
+                        input=f"{sudo_password}\n" if sudo_password is not None else None,
                     )
                     if resultado.returncode != 0:
                         detalle = resultado.stderr.strip() or resultado.stdout.strip()
@@ -1161,12 +1164,14 @@ def configurar_entorno_terminal(
     progreso: Progreso | None = None,
     perfil: str = "wanther",
     establecer_predeterminado: bool = False,
+    sudo_password: str | None = None,
 ) -> None:
     configurar_zsh(
         dry_run=dry_run,
         progreso=progreso,
         perfil=perfil,
         establecer_predeterminado=establecer_predeterminado,
+        sudo_password=sudo_password,
     )
     instalar_jetbrains_mono_nerd(dry_run=dry_run)
 
@@ -2347,6 +2352,7 @@ def instalar_tokyonight_storm(
         progreso=progreso,
         perfil=perfil,
         establecer_predeterminado=establecer_zsh_predeterminado,
+        sudo_password=sudo_password,
     )
     if perfil == "wanther":
         configurar_wanther(dry_run=dry_run)
@@ -2517,9 +2523,15 @@ def main() -> int:
                 if respuesta not in ("s", "si", "sí", "y", "yes"):
                     print("Operación cancelada.")
                     return 0
+            sudo_password = None
+            if args.zsh_default and not args.dry_run and os.geteuid() != 0:
+                if not sys.stdin.isatty():
+                    raise RuntimeError("--zsh-default requiere una terminal para introducir la contraseña.")
+                sudo_password = getpass.getpass("Contraseña para establecer Zsh como shell predeterminado: ")
             instalar_tokyonight_storm(
                 dry_run=args.dry_run,
                 progreso=progreso_cli,
+                sudo_password=sudo_password,
                 perfil=args.perfil,
                 establecer_zsh_predeterminado=args.zsh_default,
             )
