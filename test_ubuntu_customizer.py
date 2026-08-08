@@ -5,12 +5,16 @@ import unittest
 SOURCE = Path(__file__).parent / "app" / "ubuntu_customizer.py"
 
 
-class GnomeTerminalProfilePathTest(unittest.TestCase):
-    def test_uses_relocatable_profile_segment(self):
+class PtyxisProfileTest(unittest.TestCase):
+    def test_configures_ptyxis_default_profile_palette(self):
         source = SOURCE.read_text(encoding="utf-8")
 
-        self.assertIn('perfil = f"{base}:{TERMINAL_PROFILE_UUID}/"', source)
-        self.assertNotIn('perfil = f"{base}{TERMINAL_PROFILE_UUID}/"', source)
+        self.assertIn('f"{base}Profiles/{perfil}/palette"', source)
+        self.assertIn('"\'Tokyo Night Storm\'"', source)
+        self.assertIn('("font-name", "\'JetBrainsMono Nerd Font Mono 11\'")', source)
+        self.assertIn('("cursor-shape", "\'block\'")', source)
+        self.assertIn('("cursor-blink-mode", "\'off\'")', source)
+        self.assertIn("eliminar_perfil_gnome_terminal(dry_run=dry_run)", source)
 
 
 if __name__ == "__main__":

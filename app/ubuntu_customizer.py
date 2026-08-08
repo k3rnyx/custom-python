@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import contextlib
 import curses
 import getpass
@@ -175,7 +176,6 @@ def crear_respaldo() -> Path:
         ("/org/gnome/desktop/screensaver/", "desktop-screensaver.dconf"),
         ("/org/gnome/settings-daemon/plugins/power/", "power.dconf"),
         ("/org/gnome/shell/extensions/dash-to-dock/", "dash-to-dock.dconf"),
-        ("/org/gnome/terminal/legacy/", "gnome-terminal.dconf"),
         ("/org/gnome/settings-daemon/plugins/media-keys/", "media-keys.dconf"),
         ("/org/gnome/desktop/sound/", "sound.dconf"),
     ):
@@ -211,7 +211,6 @@ def restaurar_respaldo() -> None:
         ("desktop-screensaver.dconf", "/org/gnome/desktop/screensaver/"),
         ("power.dconf", "/org/gnome/settings-daemon/plugins/power/"),
         ("dash-to-dock.dconf", "/org/gnome/shell/extensions/dash-to-dock/"),
-        ("gnome-terminal.dconf", "/org/gnome/terminal/legacy/"),
         ("media-keys.dconf", "/org/gnome/settings-daemon/plugins/media-keys/"),
         ("sound.dconf", "/org/gnome/desktop/sound/"),
     )
@@ -556,7 +555,7 @@ def _dibujar_proceso(stdscr: curses.window, estado: _EstadoProceso, frame: int) 
         "Ubuntu Dock",
         "Tema TokyoNight",
         "Shell flotante y transparencia",
-        "Perfil GNOME Terminal",
+        "Perfil Ptyxis",
         "GRUB TokyoNight",
         "Login GDM3 TokyoNight",
         "Fuentes y escalado",
@@ -784,7 +783,7 @@ ESQUEMA = "org.gnome.desktop.interface"
 ESQUEMA_DOCK = "org.gnome.shell.extensions.dash-to-dock"
 ESQUEMA_SHELL = "org.gnome.shell.extensions.user-theme"
 EXTENSION_USER_THEMES = "user-theme@gnome-shell-extensions.gcampax.github.com"
-TERMINAL_PROFILE_UUID = "8b7c9f5e-2a4f-4f0c-9b3c-7e1d6a4f2c90"
+LEGACY_GNOME_TERMINAL_PROFILE_UUID = "8b7c9f5e-2a4f-4f0c-9b3c-7e1d6a4f2c90"
 MARCADOR_TRANSPARENCIA = "/* ubuntu-customizer: panel flotante transparente */"
 EXTENSIONES_PRODUCTIVIDAD = (
     (779, "Clipboard Indicator"),
@@ -839,8 +838,8 @@ def _dconf_write(ruta: str, valor: str, *, dry_run: bool = False) -> None:
     ejecutar_comando(["dconf", "write", ruta, valor], dry_run=dry_run)
 
 
-def configurar_gnome_terminal(*, dry_run: bool = False, progreso: Progreso | None = None) -> None:
-    """Configura la terminal predeterminada de Ubuntu sin instalar otra."""
+def configurar_ptyxis(*, dry_run: bool = False, progreso: Progreso | None = None) -> None:
+    """Configura la paleta del perfil predeterminado de Ptyxis, si está instalado."""
     if not dry_run:
         comprobar_comando("dconf")
         esquemas = subprocess.run(
@@ -849,46 +848,74 @@ def configurar_gnome_terminal(*, dry_run: bool = False, progreso: Progreso | Non
             capture_output=True,
             text=True,
         ).stdout.splitlines()
-        if "org.gnome.Terminal.Legacy.Profile" not in esquemas:
-            print("\nAviso: no se encontró GNOME Terminal; se conserva la terminal actual.")
-            _notificar(progreso, "Perfil GNOME Terminal", True)
+        if "org.gnome.Ptyxis.Profile" not in esquemas:
             return
-    _notificar(progreso, "Perfil GNOME Terminal")
 
-    base = "/org/gnome/terminal/legacy/profiles:/"
-    # Las claves de un perfil relocatable usan `/:UUID/`. El UUID de la
-    # lista/default permanece sin los dos puntos iniciales.
-    perfil = f"{base}:{TERMINAL_PROFILE_UUID}/"
+    _notificar(progreso, "Perfil Ptyxis")
+    base = "/org/gnome/Ptyxis/"
     if dry_run:
-        lista = ""
+        perfil = "<perfil predeterminado de Ptyxis>"
     else:
-        lista = subprocess.run(
-            ["dconf", "read", f"{base}list"],
+        perfil = subprocess.run(
+            ["dconf", "read", f"{base}default-profile-uuid"],
             check=True,
             capture_output=True,
             text=True,
-        ).stdout.strip()
-    if TERMINAL_PROFILE_UUID not in lista:
-        ids = lista.strip()[1:-1].strip() if lista.startswith("[") and lista.endswith("]") else ""
-        nueva_lista = f"[{ids}, '{TERMINAL_PROFILE_UUID}']" if ids else f"['{TERMINAL_PROFILE_UUID}']"
-        _dconf_write(f"{base}list", nueva_lista, dry_run=dry_run)
+        ).stdout.strip().strip("'")
+        if not perfil:
+            print("Aviso: Ptyxis no tiene un perfil predeterminado; se omite su configuración.")
+            _notificar(progreso, "Perfil Ptyxis", True)
+            return
 
-    colores = {
-        "visible-name": "'TokyoNight Storm'",
-        "use-theme-colors": "false",
-        "background-color": "'#1a1b26'",
-        "foreground-color": "'#c0caf5'",
-        "bold-color": "'#bb9af7'",
-        "bold-color-same-as-fg": "false",
-        "palette": "['#16161e', '#f7768e', '#73daca', '#e0af68', '#7aa2f7', '#bb9af7', '#7dcfff', '#c0caf5', '#414868', '#f7768e', '#73daca', '#e0af68', '#7aa2f7', '#bb9af7', '#7dcfff', '#c0caf5']",
-        "use-system-font": "false",
-        "font": "'JetBrainsMono Nerd Font Mono 11'",
-    }
-    for clave, valor in colores.items():
-        _dconf_write(f"{perfil}{clave}", valor, dry_run=dry_run)
-    _dconf_write(f"{base}default", f"'{TERMINAL_PROFILE_UUID}'", dry_run=dry_run)
-    _notificar(progreso, "Perfil GNOME Terminal", True)
-    print("\nPerfil GNOME Terminal aplicado: TokyoNight Storm")
+    _dconf_write(
+        f"{base}Profiles/{perfil}/palette",
+        "'Tokyo Night Storm'",
+        dry_run=dry_run,
+    )
+    for clave, valor in (
+        ("font-name", "'JetBrainsMono Nerd Font Mono 11'"),
+        ("cursor-shape", "'block'"),
+        ("cursor-blink-mode", "'off'"),
+    ):
+        _ejecutar_opcional(
+            ["gsettings", "set", "org.gnome.Ptyxis", clave, valor],
+            dry_run=dry_run,
+        )
+    eliminar_perfil_gnome_terminal(dry_run=dry_run)
+    _notificar(progreso, "Perfil Ptyxis", True)
+    print("Perfil Ptyxis aplicado: Tokyo Night Storm")
+
+
+def eliminar_perfil_gnome_terminal(*, dry_run: bool = False) -> None:
+    """Elimina solo el perfil GNOME Terminal creado por versiones anteriores."""
+    base = "/org/gnome/terminal/legacy/profiles:/"
+    if dry_run:
+        ejecutar_comando(
+            ["dconf", "reset", "-f", f"{base}:{LEGACY_GNOME_TERMINAL_PROFILE_UUID}/"],
+            dry_run=True,
+        )
+        return
+
+    if shutil.which("dconf") is None:
+        return
+    resultado = subprocess.run(
+        ["dconf", "read", f"{base}list"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    try:
+        perfiles = ast.literal_eval(resultado.stdout.strip() or "[]")
+    except (SyntaxError, ValueError):
+        return
+    if LEGACY_GNOME_TERMINAL_PROFILE_UUID not in perfiles:
+        return
+
+    perfiles = [perfil for perfil in perfiles if perfil != LEGACY_GNOME_TERMINAL_PROFILE_UUID]
+    _dconf_write(f"{base}list", repr(perfiles), dry_run=False)
+    ejecutar_comando(
+        ["dconf", "reset", "-f", f"{base}:{LEGACY_GNOME_TERMINAL_PROFILE_UUID}/"],
+    )
 
 
 def _ejecutar_opcional(comando: list[str], *, dry_run: bool = False) -> None:
@@ -1491,7 +1518,7 @@ def configurar_atajos(*, dry_run: bool = False, progreso: Progreso | None = None
     _notificar(progreso, "Atajos de teclado")
     base = "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/"
     atajos = (
-        ("ubuntu-customizer-terminal", "Terminal", "gnome-terminal", "<Primary><Alt>t"),
+        ("ubuntu-customizer-terminal", "Terminal", "x-terminal-emulator", "<Primary><Alt>t"),
         ("ubuntu-customizer-files", "Archivos", "nautilus", "<Super>e"),
     )
     if dry_run:
@@ -2469,7 +2496,7 @@ def aplicar_tokyonight_storm(*, dry_run: bool = False, progreso: Progreso | None
     _notificar(progreso, "Shell flotante y transparencia")
     aplicar_transparencia_shell(tema, dry_run=dry_run)
     _notificar(progreso, "Shell flotante y transparencia", True)
-    configurar_gnome_terminal(dry_run=dry_run, progreso=progreso)
+    configurar_ptyxis(dry_run=dry_run, progreso=progreso)
     configurar_ubuntu_dock(dry_run=dry_run, progreso=progreso)
     print(f"\nTema aplicado: {tema} (TokyoNight Storm, botones macOS, sin outline)")
 def argumentos() -> argparse.Namespace:

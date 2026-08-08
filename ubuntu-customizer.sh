@@ -114,7 +114,7 @@ PROGRESS_TASKS=(
     "Wallpapers TokyoNight"
     "Tema TokyoNight"
     "Shell flotante y transparencia"
-    "Perfil GNOME Terminal"
+    "Perfil Ptyxis"
     "GRUB TokyoNight"
     "Login GDM3 TokyoNight"
     "Fuentes y escalado"
